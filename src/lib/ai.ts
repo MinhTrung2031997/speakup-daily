@@ -40,7 +40,7 @@ ${profileText(profile)}
 
 Topic: ${topic}
 
-Write ONE conversation question about this topic, like a friendly message someone would post in a casual Discord voice/text chat.
+Write ONE conversation question that is clearly about this topic (use the profile only to personalise it, never to change the subject), like a friendly message someone would post in a casual Discord voice/text chat.
 - Natural, casual, open-ended (not yes/no), 1–2 short sentences, easy B1 words.
 - It should invite a personal opinion or story, and fit the learner's real life when possible.
 - It must be clearly different from all of these past questions:
@@ -64,9 +64,9 @@ Question: ${question}
 The learner's answer (may be a speech transcript with no punctuation): """${answer}"""
 
 Help the learner say THEIR OWN idea more naturally. Keep their meaning, opinion and facts. Do not invent a different opinion.
-1. "natural": rewrite it as a natural SPOKEN answer at B2–C1 level, 70–130 words, using the structure Point → Reason → Example → Wrap-up. Sound like a real person talking on Discord (contractions, friendly), not an essay.
+1. "natural": rewrite it as a natural SPOKEN answer at B2–C1 level, 70–130 words, using the structure Point → Reason → Example → Wrap-up. Sound like a real person talking on Discord (contractions, friendly), not an essay. If the learner gave no example, write a short, general one that fits their profile, and never invent specific events, dates or numbers.
 2. "structure": the same answer split into its 4 parts (each part is the exact sentence(s) from "natural").
-3. "phrases": 3–5 useful natural phrases or linking words that appear WORD-FOR-WORD in "natural" (e.g. "the thing is", "on top of that", "to be honest"). For each: short simple meaning and a new short example sentence.
+3. "phrases": 3–5 useful natural phrases or linking words that appear WORD-FOR-WORD in "natural" (e.g. "the thing is", "on top of that", "to be honest"). Skip basic linkers like "for example", "because", "and", "so"; prefer natural spoken chunks a B1 learner would not use yet. For each: short simple meaning and a new short example sentence.
 4. "corrections": 2–3 gentle corrections of real mistakes or unnatural parts from the learner's answer: "original" (their words), "better" (more natural), "why" (one short simple sentence). If there are few mistakes, point out a more natural word choice.
 5. "encouragement": one warm sentence praising something specific they did well.
 
