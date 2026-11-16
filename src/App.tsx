@@ -3,6 +3,7 @@ import Layout from './components/Layout';
 import { useStore } from './lib/store';
 import Today from './pages/Today';
 import Chat from './pages/Chat';
+import Listen from './pages/Listen';
 import Phrases from './pages/Phrases';
 import History from './pages/History';
 import Progress from './pages/Progress';
@@ -18,6 +19,7 @@ export default function App() {
       <Routes>
         <Route element={<Layout />}>
           <Route index element={<Today />} />
+          <Route path="listen" element={<Listen />} />
           <Route path="chat" element={<Chat />} />
           <Route path="phrases" element={<Phrases />} />
           <Route path="history" element={<History />} />

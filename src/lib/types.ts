@@ -167,6 +167,7 @@ export interface AppState {
   entries: Entry[];
   phrases: Phrase[];
   chats: ChatSession[];
+  listens: ListenSession[];
   speakingLog: Record<string, number>; // date -> seconds spoken
   activityLog: Record<string, number>; // date -> count of practice actions
 }
@@ -181,4 +182,58 @@ export interface ShadowAttemptInput {
   seconds: number;
   /** Object URL of the recorded audio; uploaded to the private `recordings` bucket if present. */
   audioUrl?: string;
+}
+
+// ---------- Listen tab ----------
+export type Accent = 'US' | 'UK';
+
+export interface ListenLine {
+  speaker: 'Alex' | 'Sam';
+  text: string;
+}
+
+export interface ListenQuestion {
+  q: string;
+  options: string[];
+  /** Index of the correct option (0-3). */
+  answer: number;
+}
+
+export interface ListenDrill {
+  title: string;
+  lines: ListenLine[];
+  questions: ListenQuestion[];
+  dictation: string;
+  keyIdeas: string[];
+  phrases: PhraseItem[];
+}
+
+export interface RetellResult {
+  retell: string;
+  ideasCovered: string[];
+  ideasMissed: string[];
+  phrasesUsed: string[];
+  score: number; // 0-100
+  tip: string;
+  praise: string;
+  modelRetell: string;
+  fluency?: FluencyStats;
+}
+
+/** One listening drill, saved to the listening_sessions table. */
+export interface ListenSession {
+  id: string;
+  date: string;
+  topic: string;
+  accent: Accent;
+  speed: number;
+  level: BuilderLevel;
+  drill: ListenDrill;
+  /** Chosen option per question (-1 = not answered). */
+  answers?: number[];
+  questionScore?: number; // 0-3
+  dictationText?: string;
+  dictationAccuracy?: number; // 0-100
+  retell?: RetellResult;
+  createdAt: number;
 }

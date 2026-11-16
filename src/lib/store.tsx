@@ -23,6 +23,7 @@ export function defaultState(): AppState {
     entries: [],
     phrases: [],
     chats: [],
+    listens: [],
     speakingLog: {},
     activityLog: {},
   };
@@ -43,6 +44,7 @@ export function normalizeState(raw: unknown): AppState {
     entries: Array.isArray(r.entries) ? r.entries : [],
     phrases: Array.isArray(r.phrases) ? r.phrases : [],
     chats: Array.isArray(r.chats) ? r.chats : [],
+    listens: Array.isArray(r.listens) ? r.listens : [],
     speakingLog: r.speakingLog && typeof r.speakingLog === 'object' ? r.speakingLog : {},
     activityLog: r.activityLog && typeof r.activityLog === 'object' ? r.activityLog : {},
   };

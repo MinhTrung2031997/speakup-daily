@@ -6,6 +6,7 @@ import Icon from './Icon';
 
 const NAV = [
   { to: '/', label: 'Today', icon: 'home' },
+  { to: '/listen', label: 'Listen', icon: 'headphones' },
   { to: '/chat', label: 'Chat', icon: 'chat' },
   { to: '/phrases', label: 'Phrases', icon: 'cards' },
   { to: '/history', label: 'History', icon: 'history' },

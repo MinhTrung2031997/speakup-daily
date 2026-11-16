@@ -100,6 +100,22 @@ export function mockResponse(task: string, turns: GeminiTurn[]): unknown {
       const parts = slots.map((slot, i) => ({ slot, text: i === slots.length - 1 ? sentences.slice(i).join(' ') : sentences[i] || '' })).filter((p) => p.text);
       return { answer: sentences.join(' '), parts, phrases: BUILDER_ANSWER.phrases };
     }
+    case 'listen-drill':
+      return LISTEN_DRILL;
+    case 'listen-retell': {
+      const retell = (last.split('60-second retell')[1] || '').toLowerCase();
+      const covered = LISTEN_DRILL.keyIdeas.filter((k) => k.toLowerCase().split(' ').filter((w) => w.length > 4).some((w) => retell.includes(w)));
+      const used = LISTEN_DRILL.phrases.map((p) => p.phrase).filter((p) => retell.includes(p.toLowerCase()));
+      return {
+        ideasCovered: covered,
+        ideasMissed: LISTEN_DRILL.keyIdeas.filter((k) => !covered.includes(k)),
+        phrasesUsed: used,
+        score: covered.length ? Math.min(95, 40 + covered.length * 12 + used.length * 5) : 25,
+        tip: 'Start with the big picture ("They were talking about…"), then add one detail for each speaker.',
+        praise: covered.length ? 'You caught the main idea of the chat. Nice listening!' : 'Good effort! Try to say who wanted what.',
+        modelRetell: "Alex and Sam were talking about working from home. Alex said it saves a ton of time because there's no traffic, but sometimes it gets a bit lonely. Sam prefers the office because chatting with the team keeps him going. In the end, they agreed that a mix of both is probably the sweet spot.",
+      };
+    }
     case 'ping':
       return { message: 'Hello! Demo mode is working 🎉' };
     default:
@@ -175,5 +191,34 @@ const BUILDER_ANSWER = {
     { phrase: 'in no time', meaning: 'Very quickly.', example: "You'll learn it in no time." },
     { phrase: 'at the end of the day', meaning: 'When you think about what matters most.', example: "At the end of the day, practice is what counts." },
     { phrase: 'double-check', meaning: 'Check again to be sure.', example: 'Always double-check the address before you send it.' },
+  ],
+};
+
+/** Demo data for the Listen tab. */
+const LISTEN_DRILL = {
+  title: 'Home or office?',
+  lines: [
+    { speaker: 'Alex', text: "Hey Sam, are you still working from home these days?" },
+    { speaker: 'Sam', text: "Nah, I'm back at the office three days a week now. What about you?" },
+    { speaker: 'Alex', text: "Still home, honestly. No traffic in the morning saves me a ton of time." },
+    { speaker: 'Sam', text: "Oh nice, that's a big plus. Doesn't it get lonely, though?" },
+    { speaker: 'Alex', text: "Yeah, sometimes. Some days I don't talk to anyone until lunch, which is kind of weird." },
+    { speaker: 'Sam', text: "That's exactly why I went back. Chatting with the team really keeps me going." },
+    { speaker: 'Alex', text: "Fair enough. But I focus way better when it's quiet, so I get more done at home." },
+    { speaker: 'Sam', text: "Makes sense. Maybe a mix of both is the sweet spot." },
+    { speaker: 'Alex', text: "Totally. I might try going in on Fridays and see how it goes." },
+  ],
+  questions: [
+    { q: 'What are Alex and Sam mainly talking about?', options: ['Working from home or at the office', 'Their favourite lunch places', 'A new project at work', 'Traffic in the city'], answer: 0 },
+    { q: 'How many days a week is Sam at the office now?', options: ['One', 'Two', 'Three', 'Five'], answer: 2 },
+    { q: 'How does Sam feel about working with the team in person?', options: ['It makes him tired', 'It keeps him motivated', "He doesn't care", 'It is too noisy'], answer: 1 },
+  ],
+  dictation: 'No traffic in the morning saves me a ton of time.',
+  keyIdeas: ['Alex works from home and saves time with no traffic', 'Working from home can feel lonely', 'Sam went back to the office to chat with the team', 'They agree a mix of both is best'],
+  phrases: [
+    { phrase: 'a ton of time', meaning: 'A lot of time.', example: 'Cooking at home takes a ton of time.' },
+    { phrase: 'keeps me going', meaning: 'Gives me energy to continue.', example: 'Good music keeps me going at the gym.' },
+    { phrase: 'the sweet spot', meaning: 'The best balance.', example: 'Two coffees a day is my sweet spot.' },
+    { phrase: 'see how it goes', meaning: 'Try it and wait for the result.', example: "Let's try the new plan and see how it goes." },
   ],
 };

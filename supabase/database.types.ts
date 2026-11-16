@@ -319,6 +319,63 @@ export type Database = {
           },
         ]
       }
+      listening_sessions: {
+        Row: {
+          accent: string
+          answers: Json | null
+          created_at: string
+          dictation_accuracy: number | null
+          dictation_text: string | null
+          drill: Json
+          id: string
+          level: string
+          question_score: number | null
+          retell: Json | null
+          retell_score: number | null
+          session_date: string
+          speed: number
+          topic: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          accent?: string
+          answers?: Json | null
+          created_at?: string
+          dictation_accuracy?: number | null
+          dictation_text?: string | null
+          drill: Json
+          id?: string
+          level?: string
+          question_score?: number | null
+          retell?: Json | null
+          retell_score?: number | null
+          session_date?: string
+          speed?: number
+          topic?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Update: {
+          accent?: string
+          answers?: Json | null
+          created_at?: string
+          dictation_accuracy?: number | null
+          dictation_text?: string | null
+          drill?: Json
+          id?: string
+          level?: string
+          question_score?: number | null
+          retell?: Json | null
+          retell_score?: number | null
+          session_date?: string
+          speed?: number
+          topic?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       phrase_reviews: {
         Row: {
           created_at: string

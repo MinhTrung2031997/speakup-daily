@@ -188,13 +188,13 @@ Deno.serve(async (req) => {
       }
       if (res.status === 429) {
         // One quick retry, then try the next model (limits are per model); report the limit if all are used up.
-        console.warn(`Gemini 429 on ${model} (retry ${transient + 1}/${TRANSIENT_BACKOFF_MS.length})`);
+        console.warn(`Gemini 429 on ${model}; ${transient < TRANSIENT_BACKOFF_MS.length ? 'retrying once' : 'trying the next model'}`);
         if (await backoff()) continue;
         if (await switchModel()) continue;
         return fail(429, 'quota', 'The free AI limit was reached. Wait a minute and try again.');
       }
       if (res.status >= 500) {
-        console.warn(`Gemini ${res.status} on ${model} (retry ${transient + 1}/${TRANSIENT_BACKOFF_MS.length})`);
+        console.warn(`Gemini ${res.status} on ${model}; ${transient < TRANSIENT_BACKOFF_MS.length ? 'retrying once' : 'trying the next model'}`);
         last = { status: 502, kind: 'server', message: 'Google AI is busy right now. Please try again in a moment.' };
         if (await backoff()) continue;
         if (await switchModel()) continue;

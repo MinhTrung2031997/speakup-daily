@@ -214,3 +214,49 @@ export function speak(text: string, opts: { voiceURI: string; rate: number }): P
 export function stopSpeaking() {
   if (ttsSupported()) window.speechSynthesis.cancel();
 }
+
+/* ---------------- Two-voice dialogue playback (Listen tab) ---------------- */
+
+const langOf = (v: SpeechSynthesisVoice) => v.lang.replace('_', '-').toLowerCase();
+
+/**
+ * Two different voices for a dialogue in the chosen accent (en-US or en-GB). Falls back to the
+ * closest English voices when the device lacks one; `pitch` separates the speakers if both
+ * end up on the same voice.
+ */
+export function dialogueVoices(accent: 'US' | 'UK'): { voice?: SpeechSynthesisVoice; pitch: number; fallback: boolean }[] {
+  if (!ttsSupported()) return [{ pitch: 1, fallback: true }, { pitch: 1, fallback: true }];
+  const all = window.speechSynthesis.getVoices().filter((v) => langOf(v).startsWith('en'));
+  const want = accent === 'UK' ? 'en-gb' : 'en-us';
+  const exact = all.filter((v) => langOf(v) === want);
+  // Prefer the accent, then other English voices (en-AU, en-IE... sound closer than a US/UK swap), then anything English.
+  const near = all.filter((v) => !exact.includes(v) && !['en-us', 'en-gb'].includes(langOf(v)));
+  const rest = all.filter((v) => !exact.includes(v) && !near.includes(v));
+  const ordered = [...exact, ...near, ...rest];
+  const a = ordered[0];
+  const b = ordered.find((v) => v !== a);
+  return [
+    { voice: a, pitch: 1, fallback: !a || langOf(a) !== want },
+    b ? { voice: b, pitch: 1, fallback: langOf(b) !== want } : { voice: a, pitch: 0.75, fallback: true },
+  ];
+}
+
+/** Speak with an explicit voice/pitch. Resolves when finished, cancelled, or after a safety timeout. */
+export function speakWith(text: string, opts: { voice?: SpeechSynthesisVoice; rate: number; pitch?: number; lang?: string }): Promise<void> {
+  return new Promise((resolve) => {
+    if (!ttsSupported()) return resolve();
+    let done = false;
+    const finish = () => { if (!done) { done = true; clearTimeout(timer); resolve(); } };
+    // Some browsers never fire onend (e.g. no voices installed); don't hang the player.
+    const words = text.split(/\s+/).length;
+    const timer = setTimeout(finish, Math.max(4000, (words / (2.6 * opts.rate)) * 1000 * 2 + 3000));
+    const u = new SpeechSynthesisUtterance(text);
+    if (opts.voice) u.voice = opts.voice;
+    u.lang = opts.voice?.lang || opts.lang || 'en-US';
+    u.rate = opts.rate;
+    u.pitch = opts.pitch ?? 1;
+    u.onend = finish;
+    u.onerror = finish;
+    window.speechSynthesis.speak(u);
+  });
+}

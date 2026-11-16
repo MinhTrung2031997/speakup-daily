@@ -15,7 +15,7 @@ import { cleanPhrase } from './diff';
 import { isUuid, todayStr, uid } from './date';
 import { getDemoMode } from './gemini';
 import type {
-  AppState, BuilderInfo, ChatFeedback, ChatMessage, ChatSession, DailyQuestion, Entry, FluencyStats, Phrase, Profile,
+  AppState, BuilderInfo, ListenSession, ChatFeedback, ChatMessage, ChatSession, DailyQuestion, Entry, FluencyStats, Phrase, Profile,
   RetryResult, ReviewLog, Settings, ShadowAttemptInput, Topic, Upgrade,
 } from './types';
 
@@ -147,6 +147,26 @@ function answerRow(userId: string, e: Entry, questionId: string | null, clientId
   };
 }
 
+function listenRow(userId: string, l: ListenSession) {
+  return {
+    id: l.id,
+    user_id: userId,
+    topic: (l.topic || '').slice(0, 120),
+    accent: l.accent === 'UK' ? 'UK' : 'US',
+    speed: clamp(num(l.speed, 1), 0.5, 2),
+    level: l.level || 'Natural',
+    drill: j(l.drill),
+    answers: l.answers ? j(l.answers) : null,
+    question_score: l.questionScore == null ? null : clamp(Math.round(num(l.questionScore)), 0, 3),
+    dictation_text: l.dictationText ?? null,
+    dictation_accuracy: l.dictationAccuracy == null ? null : clamp(Math.round(num(l.dictationAccuracy)), 0, 100),
+    retell: l.retell ? j((({ fluency: _f, ...rest }) => rest)(l.retell)) : null,
+    retell_score: l.retell ? clamp(Math.round(num(l.retell.score)), 0, 100) : null,
+    session_date: date(l.date),
+    created_at: ts(l.createdAt),
+  };
+}
+
 function phraseRow(userId: string, p: Phrase, clientId?: string) {
   return {
     id: p.id,
@@ -234,7 +254,7 @@ export async function loadState(userId: string): Promise<AppState> {
   check(profileR, 'Load profile');
   check(settingsR, 'Load settings');
 
-  const [topics, questions, answers, fluency, phrases, reviews, chats, messages, activity] = await Promise.all([
+  const [topics, questions, answers, fluency, phrases, reviews, chats, messages, activity, listens] = await Promise.all([
     fetchAll<{ id: string; slug: string; name: string; emoji: string; active: boolean; is_custom: boolean; sort_order: number }>('topics', 'id,slug,name,emoji,active,is_custom,sort_order', 'sort_order'),
     fetchAll<{ id: string; topic_id: string | null; topic_name: string; question: string; starters: string[]; question_date: string; created_at: string }>('daily_questions', 'id,topic_id,topic_name,question,starters,question_date,created_at', 'created_at'),
     fetchAll<{ id: string; question_id: string | null; question: string; topic_name: string; answer: string; upgrade: Json; retry: Json; builder: Json; answer_date: string; created_at: string }>('answers', 'id,question_id,question,topic_name,answer,upgrade,retry,builder,answer_date,created_at', 'created_at'),
@@ -244,6 +264,9 @@ export async function loadState(userId: string): Promise<AppState> {
     fetchAll<{ id: string; topic_name: string; question: string; feedback: Json; session_date: string; created_at: string }>('chat_sessions', 'id,topic_name,question,feedback,session_date,created_at', 'created_at'),
     fetchAll<{ session_id: string; position: number; role: string; text: string; nudge: string | null }>('chat_messages', 'session_id,position,role,text,nudge', 'position'),
     fetchAll<{ activity_date: string; seconds_spoken: number; practice_count: number }>('daily_activity', 'activity_date,seconds_spoken,practice_count', 'activity_date'),
+    fetchAll<{ id: string; topic: string; accent: string; speed: number; level: string; drill: Json; answers: Json; question_score: number | null; dictation_text: string | null; dictation_accuracy: number | null; retell: Json; session_date: string; created_at: string }>(
+      'listening_sessions', 'id,topic,accent,speed,level,drill,answers,question_score,dictation_text,dictation_accuracy,retell,session_date,created_at', 'created_at',
+    ).catch(() => []), // the table may not exist yet on an old database; Listen still works for new sessions
   ]);
 
   topicIds.clear();
@@ -308,6 +331,17 @@ export async function loadState(userId: string): Promise<AppState> {
     chats: chats.map((c) => ({
       id: c.id, date: c.session_date, topicName: c.topic_name, question: c.question, messages: msgBy.get(c.id) || [],
       ...(c.feedback ? { feedback: c.feedback as unknown as ChatFeedback } : {}), createdAt: ms(c.created_at),
+    })),
+    listens: listens.map((l) => ({
+      id: l.id, date: l.session_date, topic: l.topic, accent: l.accent === 'UK' ? 'UK' : 'US', speed: num(l.speed, 1),
+      level: (['Simple', 'Natural', 'Fluent'].includes(l.level) ? l.level : 'Natural') as ListenSession['level'],
+      drill: l.drill as unknown as ListenSession['drill'],
+      ...(Array.isArray(l.answers) ? { answers: l.answers as number[] } : {}),
+      ...(l.question_score != null ? { questionScore: l.question_score } : {}),
+      ...(l.dictation_text != null ? { dictationText: l.dictation_text } : {}),
+      ...(l.dictation_accuracy != null ? { dictationAccuracy: l.dictation_accuracy } : {}),
+      ...(l.retell ? { retell: l.retell as unknown as ListenSession['retell'] } : {}),
+      createdAt: ms(l.created_at),
     })),
     speakingLog,
     activityLog,
@@ -404,6 +438,16 @@ export async function syncChanges(userId: string, prev: AppState, next: AppState
     const ids = new Set(next.chats.map((c) => c.id));
     const gone = prev.chats.filter((c) => !ids.has(c.id)).map((c) => c.id);
     for (const c of chunks(gone)) check(await supabase.from('chat_sessions').delete().in('id', c), 'Delete chats');
+  }
+
+  // Listening sessions
+  if (prev.listens !== next.listens) {
+    const old = byId(prev.listens);
+    const changed = next.listens.filter((l) => old.get(l.id) !== l);
+    for (const c of chunks(changed)) check(await supabase.from('listening_sessions').upsert(c.map((l) => listenRow(userId, l))), 'Save listening');
+    const ids = new Set(next.listens.map((l) => l.id));
+    const gone = prev.listens.filter((l) => !ids.has(l.id)).map((l) => l.id);
+    for (const c of chunks(gone)) check(await supabase.from('listening_sessions').delete().in('id', c), 'Delete listening');
   }
 
   // Daily activity (streaks, minutes spoken)
@@ -584,7 +628,7 @@ export async function importLegacy(userId: string, legacy: AppState, current: Ap
 // ---------------------------------------------------------------------------
 export async function resetAll(userId: string): Promise<void> {
   // Children cascade: answers -> fluency_stats, phrases -> phrase_reviews, chat_sessions -> chat_messages.
-  for (const t of ['shadowing_attempts', 'fluency_stats', 'answers', 'phrases', 'chat_sessions', 'daily_questions', 'daily_activity'] as const) {
+  for (const t of ['shadowing_attempts', 'fluency_stats', 'answers', 'phrases', 'chat_sessions', 'daily_questions', 'daily_activity', 'listening_sessions'] as const) {
     check(await supabase.from(t).delete().eq('user_id', userId), `Delete ${t}`);
   }
   check(await supabase.from('topics').delete().eq('user_id', userId).eq('is_custom', true), 'Delete custom topics');

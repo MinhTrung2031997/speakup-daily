@@ -1,5 +1,5 @@
 import { generateJSON, type GeminiConfig, type GeminiTurn } from './gemini';
-import type { BuilderLength, BuilderLevel, BuilderPart, ChatFeedback, ChatMessage, Correction, PhraseItem, Profile, QuestionType, RetryResult, Upgrade } from './types';
+import type { BuilderLength, BuilderLevel, BuilderPart, ChatFeedback, ChatMessage, Correction, ListenDrill, ListenLine, PhraseItem, Profile, QuestionType, RetellResult, RetryResult, Upgrade } from './types';
 
 const TONE = `You are "Coach Mia", a warm, encouraging English speaking coach for a Vietnamese learner (around B1–B2).
 The learner knows a lot of vocabulary but struggles to USE it naturally and logically when speaking.
@@ -240,6 +240,85 @@ JSON shape: {"answer": string, "parts": [{"slot": string, "text": string}], "phr
   const all = phraseList(r.phrases);
   const exact = all.filter((p) => low.includes(p.phrase.toLowerCase().replace(/[.,!?…"']+$/, '')));
   return { answer, parts, phrases: (exact.length ? exact : all).slice(0, 5) };
+}
+
+// ---------- Listen tab (prompts by EL, tested Nov 16, 2026) ----------
+export const LISTEN_LENGTHS: Record<number, number> = { 45: 110, 75: 190, 120: 300 };
+
+export async function listenDrill(cfg: GeminiConfig, profile: Profile, topic: string, level: BuilderLevel, seconds = 75, past: string[] = []): Promise<ListenDrill> {
+  const words = LISTEN_LENGTHS[seconds] || 190;
+  const prompt = `Learner profile:
+${profileText(profile)}
+
+Topic: ${topic}
+Level: ${LEVEL_TEXT[level]}
+
+Write a short, natural spoken dialogue (about ${seconds} seconds, ~${words} words) between two friends, Alex and Sam, chatting casually like on a Discord voice call. It must clearly be about the topic.
+- Real spoken English: contractions, short turns, reactions ("Oh nice", "Wait, really?"), 1-2 common idioms or phrasal verbs.
+- About 9 turns (8-10), taking turns Alex, Sam, Alex... No narration, no names inside the lines.
+- Level guide: Simple = B1 words, short sentences; Natural = B2; Fluent = C1, faster-sounding, more idioms.${past.length ? `\n- Make it clearly different from these earlier dialogues: ${past.slice(-10).map((t) => `"${t}"`).join('; ')}` : ''}
+Then:
+- "questions": 3 multiple-choice questions (4 options, one correct, "answer" = index 0-3): one about the main idea, one about a detail, one about a speaker's feeling or opinion. The answer must be clear from the audio alone.
+- "dictation": ONE key sentence copied WORD-FOR-WORD from a line, 8-14 words.
+- "keyIdeas": 3-4 short key ideas that are clearly stated in the lines (no guesses), for scoring a retell.
+- "phrases": 3-4 natural spoken chunks that appear WORD-FOR-WORD in the lines (skip basic linkers), each with a simple meaning and a new short example.
+JSON shape: {"title": string, "lines": [{"speaker": "Alex"|"Sam", "text": string}], "questions": [{"q": string, "options": [string,string,string,string], "answer": number}], "dictation": string, "keyIdeas": [string], "phrases": [{"phrase": string, "meaning": string, "example": string}]}`;
+  const r = await generateJSON<Record<string, unknown>>(cfg, 'listen-drill', TONE, [{ role: 'user', text: prompt }], 0.9);
+  const lines: ListenLine[] = arr<Record<string, unknown>>(r.lines)
+    .map((l, i) => ({ speaker: (/sam/i.test(str(l?.speaker)) ? 'Sam' : /alex/i.test(str(l?.speaker)) ? 'Alex' : i % 2 ? 'Sam' : 'Alex') as ListenLine['speaker'], text: str(l?.text) }))
+    .filter((l) => l.text);
+  if (lines.length < 3) throw new Error('The AI did not return a dialogue. Please try again.');
+  const questions = arr<Record<string, unknown>>(r.questions)
+    .map((q) => {
+      const options = arr<string>(q?.options).map((o) => str(o)).filter(Boolean).slice(0, 4);
+      const answer = Math.round(Number(q?.answer));
+      return { q: str(q?.q ?? q?.question), options, answer: answer >= 0 && answer < options.length ? answer : 0 };
+    })
+    .filter((q) => q.q && q.options.length >= 2)
+    .slice(0, 3);
+  const all = lines.map((l) => l.text).join(' ');
+  let dictation = str(r.dictation);
+  // The dictation sentence must really be in the audio; otherwise use the longest line that fits.
+  const flat = (t: string) => t.toLowerCase().replace(/[^a-z0-9' ]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!dictation || !flat(all).includes(flat(dictation))) {
+    const cands = lines.flatMap((l) => l.text.match(/[^.!?]+[.!?]*/g) || []).map((x) => x.trim()).filter((x) => { const n = x.split(/\s+/).length; return n >= 6 && n <= 16; });
+    dictation = cands.sort((a, b) => b.length - a.length)[0] || lines[0].text;
+  }
+  const low = all.toLowerCase();
+  const ph = phraseList(r.phrases);
+  const exact = ph.filter((p) => low.includes(p.phrase.toLowerCase().replace(/[.,!?…"']+$/, '')));
+  return {
+    title: str(r.title) || 'Listening drill',
+    lines,
+    questions,
+    dictation,
+    keyIdeas: arr<string>(r.keyIdeas).map((x) => str(x)).filter(Boolean).slice(0, 4),
+    phrases: (exact.length ? exact : ph).slice(0, 4),
+  };
+}
+
+export async function scoreRetell(cfg: GeminiConfig, drill: ListenDrill, retell: string): Promise<RetellResult> {
+  const prompt = `Dialogue the learner heard:
+${drill.lines.map((l) => `${l.speaker}: ${l.text}`).join('\n')}
+Key ideas: ${JSON.stringify(drill.keyIdeas)}
+Target phrases: ${JSON.stringify(drill.phrases.map((p) => p.phrase))}
+The learner's 60-second retell (speech transcript, may have no punctuation): """${retell}"""
+
+Score the retell kindly. Count which key ideas they covered (meaning matters, not exact words) and which target phrases they used (allow small variations).
+Give ONE practical fluency tip and one short specific praise about something actually visible in the transcript (never claim things you cannot know, like how long or smoothly they spoke). Score 0 ideas covered means a score under 30. Then write a 4-sentence model retell in simple natural spoken English (third person: "Alex and Sam were talking about...") that the learner can shadow.
+JSON shape: {"ideasCovered": [string], "ideasMissed": [string], "phrasesUsed": [string], "score": number (0-100), "tip": string, "praise": string, "modelRetell": string}`;
+  const r = await generateJSON<Record<string, unknown>>(cfg, 'listen-retell', TONE, [{ role: 'user', text: prompt }], 0.4);
+  const list = (v: unknown) => arr<string>(v).map((x) => str(x)).filter(Boolean);
+  return {
+    retell,
+    ideasCovered: list(r.ideasCovered),
+    ideasMissed: list(r.ideasMissed),
+    phrasesUsed: list(r.phrasesUsed),
+    score: Math.max(0, Math.min(100, Math.round(Number(r.score) || 0))),
+    tip: str(r.tip),
+    praise: str(r.praise),
+    modelRetell: str(r.modelRetell),
+  };
 }
 
 // ---------- Conversation practice ----------

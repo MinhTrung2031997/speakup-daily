@@ -1,6 +1,6 @@
 import { useStore } from '../lib/store';
 import { addDays, lastNDays, todayStr } from '../lib/date';
-import { activeDates, fluencyByDay, fluencyRecords, phraseStats, streak } from '../lib/stats';
+import { activeDates, dictationByDay, fluencyByDay, fluencyRecords, listeningStats, phraseStats, streak } from '../lib/stats';
 import { MASTERED_STAGE } from '../lib/srs';
 import BarChart from '../components/BarChart';
 import { PageTitle } from '../components/ui';
@@ -31,6 +31,8 @@ export default function Progress() {
   const avgOf = (k: 'wpm' | 'restarts' | 'pauses') => (recent.length ? Math.round((recent.reduce((a, r) => a + r[k], 0) / recent.length) * 10) / 10 : 0);
   const recentWords = recent.reduce((a, r) => a + r.words, 0);
   const recentFillers = recentWords ? Math.round((recent.reduce((a, r) => a + r.fillers, 0) / recentWords) * 1000) / 10 : 0;
+  const ls = listeningStats(state);
+  const dictData = dictationByDay(state, days).map((d) => ({ label: short(d.date), value: d.accuracy, title: d.count ? `${d.date}: ${d.accuracy}% (${d.count} dictation${d.count > 1 ? 's' : ''})` : `${d.date}: no dictation` }));
   const userMsgs = state.chats.reduce((n, c) => n + c.messages.filter((m) => m.role === 'user').length, 0);
 
   const stages = Array.from({ length: MASTERED_STAGE + 1 }, (_, i) => state.phrases.filter((p) => Math.min(p.stage, MASTERED_STAGE) === i).length);
@@ -67,6 +69,23 @@ export default function Progress() {
           <p className="muted mb-2 text-xs">Last 14 days</p>
           <BarChart data={minutesData} color="fill-emerald-500" unit=" min" />
         </div>
+      </div>
+
+      <div className="card">
+        <div className="mb-2 flex flex-wrap items-end justify-between gap-2">
+          <div>
+            <h2 className="h-section">🎧 Listening</h2>
+            <p className="muted text-xs">Dictation accuracy · last 14 days</p>
+          </div>
+          <p className="text-xs text-slate-500">
+            <b>{ls.sessions}</b> drills · questions <b>{ls.questionPct ?? '–'}{ls.questionPct != null ? '%' : ''}</b> right · dictation (last 5) <b>{ls.recentAccuracy ?? '–'}{ls.recentAccuracy != null ? '%' : ''}</b> · <b>{ls.retells}</b> retells
+          </p>
+        </div>
+        {ls.dictations ? (
+          <BarChart data={dictData} color="fill-orange-500" unit="%" />
+        ) : (
+          <p className="muted rounded-xl border border-dashed border-slate-300 p-6 text-center dark:border-slate-700">🎧 Do a dictation on the Listen tab to start tracking your accuracy.</p>
+        )}
       </div>
 
       <div className="card">
