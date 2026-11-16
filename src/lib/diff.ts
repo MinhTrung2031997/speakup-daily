@@ -62,3 +62,12 @@ export function markPhrases(text: string, phrases: string[]): { text: string; hi
   if (last < text.length) out.push({ text: text.slice(last), hit: false });
   return out;
 }
+
+/** How much of a model sentence the user said: % of its words found (in order) in the transcript. */
+export function matchScore(sentence: string, transcript: string): { score: number; words: { text: string; hit: boolean }[] } {
+  const { right } = wordDiff(transcript, sentence);
+  const words = right.map((p) => ({ text: p.text, hit: p.type === 'same' }));
+  const counted = words.filter((w) => norm(w.text) !== '');
+  const hits = counted.filter((w) => w.hit).length;
+  return { score: counted.length ? Math.round((hits / counted.length) * 100) : 0, words };
+}

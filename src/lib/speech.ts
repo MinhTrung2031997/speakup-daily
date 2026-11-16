@@ -7,7 +7,7 @@ interface SRAlternative { transcript: string }
 interface SRResult { isFinal: boolean; 0: SRAlternative; length: number }
 interface SREvent { resultIndex: number; results: { length: number; [i: number]: SRResult } }
 interface SRErrorEvent { error: string }
-interface SpeechRecognitionLike {
+export interface SpeechRecognitionLike {
   lang: string;
   continuous: boolean;
   interimResults: boolean;
@@ -27,6 +27,17 @@ function getSR(): SRCtor | null {
 }
 
 export const speechRecognitionSupported = (): boolean => !!getSR();
+
+/** A fresh continuous en-US recogniser with interim results, or null if unsupported. */
+export function createRecognition(): SpeechRecognitionLike | null {
+  const SR = getSR();
+  if (!SR) return null;
+  const rec = new SR();
+  rec.lang = 'en-US';
+  rec.continuous = true;
+  rec.interimResults = true;
+  return rec;
+}
 
 export interface RecognitionHandlers {
   /** Called with final text chunks as they are recognised. */

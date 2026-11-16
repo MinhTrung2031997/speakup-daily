@@ -8,6 +8,7 @@ import { speak, stopSpeaking, ttsSupported } from '../lib/speech';
 import { markPhrases } from '../lib/diff';
 import type { ChatMessage, ChatSession } from '../lib/types';
 import MicInput from '../components/MicInput';
+import ShadowPractice from '../components/ShadowPractice';
 import { ErrorBox, NoKeyBanner, PageTitle, Spinner } from '../components/ui';
 import Icon from '../components/Icon';
 
@@ -18,6 +19,7 @@ export default function Chat() {
   const phrases = todaysPhrases(state);
   const topic = q?.topicName || 'Daily Life';
   const question = q?.question || 'How has your day been so far?';
+  const [shadowIdx, setShadowIdx] = useState<number | null>(null);
   const session = [...state.chats].reverse().find((c) => c.date === todayStr() && !c.feedback);
   const lastDone = [...state.chats].reverse().find((c) => c.date === todayStr() && c.feedback);
 
@@ -145,6 +147,14 @@ export default function Chat() {
                     )}
                   </div>
                   {m.nudge && <p className="px-1 text-xs text-amber-700 dark:text-amber-300">💡 {m.nudge}</p>}
+                  {m.role === 'model' && shadowIdx !== i && (
+                    <button className="px-1 text-xs font-medium text-blue-600 hover:underline dark:text-blue-300" onClick={() => setShadowIdx(i)}>🗣️ Shadow this</button>
+                  )}
+                  {m.role === 'model' && shadowIdx === i && (
+                    <div className="rounded-2xl border border-slate-200 p-3 dark:border-slate-700">
+                      <ShadowPractice key={m.text} text={m.text} phrases={phrases} onClose={() => setShadowIdx(null)} />
+                    </div>
+                  )}
                 </div>
               </div>
             ))}

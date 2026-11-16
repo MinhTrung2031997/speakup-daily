@@ -10,6 +10,7 @@ import { streak } from '../lib/stats';
 import type { DailyQuestion, Entry } from '../lib/types';
 import MicInput from '../components/MicInput';
 import UpgradeResult from '../components/UpgradeResult';
+import { ShadowCard } from '../components/ShadowPractice';
 import { ErrorBox, NoKeyBanner, Spinner } from '../components/ui';
 import Icon from '../components/Icon';
 
@@ -202,10 +203,12 @@ export default function Today() {
         <div ref={resultRef} className="scroll-mt-20 space-y-4">
           <UpgradeResult entry={entry} hideModel={practice} />
 
+          {!practice && <ShadowCard text={entry.upgrade.natural} phrases={entry.upgrade.phrases.map((p) => p.phrase)} hint="Shadow your upgraded answer one sentence at a time: listen, repeat, then compare the model with your own voice." />}
+
           <section className="card space-y-3">
             <div>
               <h2 className="h-section">🔁 Say it again</h2>
-              <p className="muted">Listen 2–3 times and shadow it. Then hide the model answer and say it again in your own way, using the new phrases.</p>
+              <p className="muted">After shadowing, hide the model answer and say it again in your own way, using the new phrases.</p>
             </div>
             {!practice ? (
               <button className="btn-soft" onClick={() => { setPractice(true); setAttempt(''); }}><Icon name="mic" className="h-4 w-4" /> Hide answer &amp; try again</button>

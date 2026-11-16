@@ -3,6 +3,7 @@ import { useStore } from '../lib/store';
 import { prettyDate } from '../lib/date';
 import type { Entry } from '../lib/types';
 import UpgradeResult from '../components/UpgradeResult';
+import { ShadowCard } from '../components/ShadowPractice';
 import { Empty, PageTitle } from '../components/ui';
 import { FeedbackCard } from './Chat';
 import Icon from '../components/Icon';
@@ -102,6 +103,7 @@ function EntryRow({ e, open, onToggle }: { e: Entry; open: boolean; onToggle: ()
       {open && (
         <div className="border-t border-slate-200 p-3 dark:border-slate-800 sm:p-4">
           {e.upgrade ? <UpgradeResult entry={e} /> : <p className="muted">No upgrade for this answer.</p>}
+          {e.upgrade && <div className="mt-4"><ShadowCard text={e.upgrade.natural} phrases={e.upgrade.phrases.map((p) => p.phrase)} /></div>}
           {e.retry && (
             <div className="mt-3 rounded-xl bg-slate-50 p-3 text-sm dark:bg-slate-800/50">
               <p className="font-semibold">Say it again: {e.retry.score}/100</p>
