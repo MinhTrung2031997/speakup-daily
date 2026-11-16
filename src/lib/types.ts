@@ -92,7 +92,30 @@ export interface Entry {
   retry?: RetryResult;
   /** Fluency stats from speaking the original answer (only when the mic was used). */
   fluency?: FluencyStats;
+  /** Set when this entry came from the Answer builder (answer = the learner's "say it your way" try). */
+  builder?: BuilderInfo;
   createdAt: number;
+}
+
+export type QuestionType = 'Opinion' | 'Experience' | 'Compare' | 'Describe' | 'Hypothetical' | 'Small talk';
+export type BuilderLevel = 'Simple' | 'Natural' | 'Fluent';
+export type BuilderLength = 20 | 45 | 90;
+
+export interface BuilderPart {
+  slot: string;
+  text: string;
+}
+
+/** Answer builder data saved with an Entry (answers.builder jsonb). */
+export interface BuilderInfo {
+  qtype: QuestionType;
+  slots: string[];
+  /** slot -> chosen or typed idea */
+  picks: Record<string, string>;
+  level: BuilderLevel;
+  seconds: BuilderLength;
+  /** The model answer split into its labelled parts. */
+  parts: BuilderPart[];
 }
 
 export interface ReviewLog {

@@ -1,5 +1,5 @@
 import { generateJSON, type GeminiConfig, type GeminiTurn } from './gemini';
-import type { ChatFeedback, ChatMessage, Correction, PhraseItem, Profile, RetryResult, Upgrade } from './types';
+import type { BuilderLength, BuilderLevel, BuilderPart, ChatFeedback, ChatMessage, Correction, PhraseItem, Profile, QuestionType, RetryResult, Upgrade } from './types';
 
 const TONE = `You are "Coach Mia", a warm, encouraging English speaking coach for a Vietnamese learner (around B1–B2).
 The learner knows a lot of vocabulary but struggles to USE it naturally and logically when speaking.
@@ -88,17 +88,25 @@ JSON shape: {"natural": string, "structure": {"point": string, "reason": string,
 }
 
 // ---------- Say it again ----------
-export async function scoreRetry(cfg: GeminiConfig, question: string, natural: string, phrases: string[], attempt: string): Promise<RetryResult> {
+export async function scoreRetry(
+  cfg: GeminiConfig,
+  question: string,
+  natural: string,
+  phrases: string[],
+  attempt: string,
+  structure = 'Point, Reason, Example, Wrap-up',
+  task = 'retry',
+): Promise<RetryResult> {
   const prompt = `Question: ${question}
 Model answer the learner studied: """${natural}"""
 Target phrases: ${JSON.stringify(phrases)}
 The learner's new attempt WITHOUT looking (may be a speech transcript): """${attempt}"""
 
-Check which target phrases they used (allow small variations, e.g. tense or a missing word). Score 0–100 for how natural, fluent and well-structured (Point, Reason, Example, Wrap-up) the attempt is, being encouraging.
+Check which target phrases they used (allow small variations, e.g. tense or a missing word). Score 0–100 for how natural, fluent and well-structured (${structure}) the attempt is, being encouraging.
 Give ONE practical tip for sounding more fluent (fewer fillers, better linking, clearer structure) and one short specific praise.
 
 JSON shape: {"used": [string], "missed": [string], "score": number, "tip": string, "praise": string}`;
-  const r = await generateJSON<Record<string, unknown>>(cfg, 'retry', TONE, [{ role: 'user', text: prompt }], 0.4);
+  const r = await generateJSON<Record<string, unknown>>(cfg, task, TONE, [{ role: 'user', text: prompt }], 0.4);
   const score = Math.max(0, Math.min(100, Math.round(Number(r.score) || 0)));
   return {
     attempt,
@@ -108,6 +116,130 @@ JSON shape: {"used": [string], "missed": [string], "score": number, "tip": strin
     tip: str(r.tip),
     praise: str(r.praise),
   };
+}
+
+// ---------- Answer builder (prompts by EL, tested Nov 16, 2026) ----------
+export const QUESTION_TYPES: { type: QuestionType; label: string; hint: string; emoji: string }[] = [
+  { type: 'Opinion', label: 'Opinion', hint: 'Is X good or bad?', emoji: '💭' },
+  { type: 'Experience', label: 'Experience', hint: 'Tell me about a time…', emoji: '📖' },
+  { type: 'Compare', label: 'Compare', hint: 'A or B?', emoji: '⚖️' },
+  { type: 'Describe', label: 'Describe', hint: 'What is X like?', emoji: '🖼️' },
+  { type: 'Hypothetical', label: 'What would you do', hint: 'What would you do if…?', emoji: '🔮' },
+  { type: 'Small talk', label: 'Small talk', hint: 'Light everyday chat', emoji: '☕' },
+];
+
+/** Default answer structure per question type (used if the AI leaves "slots" out). */
+export const DEFAULT_SLOTS: Record<QuestionType, string[]> = {
+  Opinion: ['Stance', 'Reason', 'Example', 'Wrap-up'],
+  Experience: ['Situation', 'What happened', 'How I felt', 'Lesson'],
+  Compare: ['Both sides', 'My pick', 'Why'],
+  Describe: ['Overview', 'Detail 1', 'Detail 2', 'Why it matters'],
+  Hypothetical: ['My choice', 'Reason', 'My plan'],
+  'Small talk': ['Quick answer', 'A bit more', 'Question back'],
+};
+
+export const LENGTH_WORDS: Record<BuilderLength, number> = { 20: 50, 45: 110, 90: 220 };
+const LEVEL_TEXT: Record<BuilderLevel, string> = { Simple: 'Simple (B1)', Natural: 'Natural (B2)', Fluent: 'Fluent (C1)' };
+
+export interface BuilderQuestion {
+  question: string;
+  slots: string[];
+}
+
+export async function builderQuestion(cfg: GeminiConfig, profile: Profile, topic: string, qtype: QuestionType, past: string[]): Promise<BuilderQuestion> {
+  const prompt = `Learner profile:
+${profileText(profile)}
+
+Topic: ${topic}
+Question type: ${qtype}
+
+Write ONE casual conversation question of this type, like a friendly message in a Discord voice chat.
+- It must clearly be about the topic; use the profile only to personalise it.
+- It must truly match the question type: Opinion = is X good/bad, should X happen; Experience = tell me about a time; Compare = A or B; Describe = what is X like; Hypothetical = what would you do if; Small talk = light everyday chat.
+- 1-2 short sentences, easy B1 words, open-ended (not yes/no).
+- Clearly different from these past questions: ${past.length ? past.slice(-40).map((q) => `"${q}"`).join('; ') : '(none yet)'}
+Also return "slots": the answer structure for this question type, in order:
+- Opinion: ["Stance","Reason","Example","Wrap-up"]
+- Experience: ["Situation","What happened","How I felt","Lesson"]
+- Compare: ["Both sides","My pick","Why"]
+- Describe: ["Overview","Detail 1","Detail 2","Why it matters"]
+- Hypothetical: ["My choice","Reason","My plan"]
+- Small talk: ["Quick answer","A bit more","Question back"]
+JSON shape: {"question": string, "slots": [string]}`;
+  const r = await generateJSON<Record<string, unknown>>(cfg, 'builder-question', TONE, [{ role: 'user', text: prompt }], 1.0);
+  const question = str(r.question);
+  if (!question) throw new Error('The AI did not return a question. Please try again.');
+  const slots = arr<string>(r.slots).map((x) => str(x)).filter(Boolean).slice(0, 5);
+  return { question, slots: slots.length >= 2 ? slots : DEFAULT_SLOTS[qtype] };
+}
+
+export interface IdeaRow {
+  slot: string;
+  options: string[];
+}
+
+export async function builderIdeas(cfg: GeminiConfig, profile: Profile, qtype: QuestionType, question: string, slots: string[]): Promise<IdeaRow[]> {
+  const prompt = `Learner profile:
+${profileText(profile)}
+
+Question (${qtype}): ${question}
+Answer parts: ${JSON.stringify(slots)}
+
+For EACH answer part, give 4 short idea options the learner can tap (3-8 words each, plain English, no full sentences).
+- Options must be meaningfully different (e.g. for a stance: agree, disagree, it depends, mixed).
+- Make at least 2 options per part fit the learner's real life from the profile; never state invented specific events, dates or numbers.
+- Use everyday words a B1 learner already knows passively.
+JSON shape: {"rows": [{"slot": string, "options": [string, string, string, string]}]}`;
+  const r = await generateJSON<Record<string, unknown>>(cfg, 'builder-ideas', TONE, [{ role: 'user', text: prompt }], 0.9);
+  const rows = arr<Record<string, unknown>>(r.rows).map((x) => ({ slot: str(x?.slot), options: arr<string>(x?.options).map((o) => str(o)).filter(Boolean).slice(0, 5) }));
+  // Keep the slot order we asked for; match rows by name, then by position.
+  const out = slots.map((slot, i) => {
+    const row = rows.find((x) => x.slot.toLowerCase() === slot.toLowerCase()) || rows[i];
+    return { slot, options: row?.options || [] };
+  });
+  if (!out.some((x) => x.options.length)) throw new Error('The AI did not return any ideas. Please try again.');
+  return out;
+}
+
+export interface BuilderAnswer {
+  answer: string;
+  parts: BuilderPart[];
+  phrases: PhraseItem[];
+}
+
+export async function builderAnswer(
+  cfg: GeminiConfig,
+  profile: Profile,
+  qtype: QuestionType,
+  question: string,
+  slots: string[],
+  picks: Record<string, string>,
+  level: BuilderLevel,
+  seconds: BuilderLength,
+): Promise<BuilderAnswer> {
+  const prompt = `Learner profile:
+${profileText(profile)}
+
+Question (${qtype}): ${question}
+Answer parts in order: ${JSON.stringify(slots)}
+The learner picked these ideas (part -> idea): ${JSON.stringify(picks)}
+Level: ${LEVEL_TEXT[level]}. Target length: about ${seconds} seconds of speech (~${LENGTH_WORDS[seconds]} words).
+
+Write a natural SPOKEN answer, like a real person on Discord (contractions, friendly), built ONLY from the picked ideas, in the order of the answer parts. Do not add new opinions, events, dates or numbers; you may add small natural connecting words and a general example.
+Level guide: Simple = short sentences, B1 words; Natural = B2, a few idioms; Fluent = C1, varied linking and idioms.
+Then:
+- "parts": the answer split into the answer parts (exact sentences from "answer").
+- "phrases": 3-5 natural spoken chunks that appear WORD-FOR-WORD in "answer". Skip basic linkers (for example, because, and, so, but). Each with a short simple meaning and a new short example.
+JSON shape: {"answer": string, "parts": [{"slot": string, "text": string}], "phrases": [{"phrase": string, "meaning": string, "example": string}]}`;
+  const r = await generateJSON<Record<string, unknown>>(cfg, 'builder-answer', TONE, [{ role: 'user', text: prompt }], 0.7);
+  const answer = str(r.answer);
+  if (!answer) throw new Error('The AI did not return a model answer. Please try again.');
+  const parts = arr<Record<string, unknown>>(r.parts).map((p) => ({ slot: str(p?.slot), text: str(p?.text) })).filter((p) => p.text);
+  // Only keep phrases that really appear in the answer, so the highlight and the scoring line up.
+  const low = answer.toLowerCase();
+  const all = phraseList(r.phrases);
+  const exact = all.filter((p) => low.includes(p.phrase.toLowerCase().replace(/[.,!?…"']+$/, '')));
+  return { answer, parts, phrases: (exact.length ? exact : all).slice(0, 5) };
 }
 
 // ---------- Conversation practice ----------

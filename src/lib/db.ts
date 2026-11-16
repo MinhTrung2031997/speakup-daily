@@ -15,7 +15,7 @@ import { cleanPhrase } from './diff';
 import { isUuid, todayStr, uid } from './date';
 import { getDemoMode } from './gemini';
 import type {
-  AppState, ChatFeedback, ChatMessage, ChatSession, DailyQuestion, Entry, FluencyStats, Phrase, Profile,
+  AppState, BuilderInfo, ChatFeedback, ChatMessage, ChatSession, DailyQuestion, Entry, FluencyStats, Phrase, Profile,
   RetryResult, ReviewLog, Settings, ShadowAttemptInput, Topic, Upgrade,
 } from './types';
 
@@ -140,6 +140,7 @@ function answerRow(userId: string, e: Entry, questionId: string | null, clientId
     upgrade: e.upgrade ? j(e.upgrade) : null,
     retry: retry ? j(retry) : null,
     retry_score: e.retry ? clamp(Math.round(num(e.retry.score)), 0, 100) : null,
+    builder: e.builder ? j(e.builder) : null,
     input_mode: e.fluency ? 'voice' : 'text',
     answer_date: date(e.date),
     created_at: ts(e.createdAt),
@@ -236,7 +237,7 @@ export async function loadState(userId: string): Promise<AppState> {
   const [topics, questions, answers, fluency, phrases, reviews, chats, messages, activity] = await Promise.all([
     fetchAll<{ id: string; slug: string; name: string; emoji: string; active: boolean; is_custom: boolean; sort_order: number }>('topics', 'id,slug,name,emoji,active,is_custom,sort_order', 'sort_order'),
     fetchAll<{ id: string; topic_id: string | null; topic_name: string; question: string; starters: string[]; question_date: string; created_at: string }>('daily_questions', 'id,topic_id,topic_name,question,starters,question_date,created_at', 'created_at'),
-    fetchAll<{ id: string; question_id: string | null; question: string; topic_name: string; answer: string; upgrade: Json; retry: Json; answer_date: string; created_at: string }>('answers', 'id,question_id,question,topic_name,answer,upgrade,retry,answer_date,created_at', 'created_at'),
+    fetchAll<{ id: string; question_id: string | null; question: string; topic_name: string; answer: string; upgrade: Json; retry: Json; builder: Json; answer_date: string; created_at: string }>('answers', 'id,question_id,question,topic_name,answer,upgrade,retry,builder,answer_date,created_at', 'created_at'),
     fetchAll<FluencyRow>('fluency_stats', 'answer_id,kind,words,duration_seconds,wpm,filler_count,filler_words,restarts,restart_examples,long_pauses,longest_pause_seconds,tip,created_at', 'created_at'),
     fetchAll<{ id: string; phrase: string; meaning: string; example: string; source: string; added_date: string; stage: number; due: string; created_at: string }>('phrases', 'id,phrase,meaning,example,source,added_date,stage,due,created_at', 'created_at'),
     fetchAll<{ phrase_id: string; review_date: string; sentence: string; ok: boolean; feedback: string }>('phrase_reviews', 'phrase_id,review_date,sentence,ok,feedback,created_at', 'created_at'),
@@ -295,6 +296,7 @@ export async function loadState(userId: string): Promise<AppState> {
         ...(a.upgrade ? { upgrade: a.upgrade as unknown as Upgrade } : {}),
         ...(retry ? { retry } : {}),
         ...(fl ? { fluency: fl } : {}),
+        ...(a.builder ? { builder: a.builder as unknown as BuilderInfo } : {}),
         createdAt: ms(a.created_at),
       } as Entry;
     }),

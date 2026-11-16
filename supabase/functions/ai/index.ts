@@ -15,6 +15,11 @@ const DEFAULT_MODEL = 'gemini-flash-lite-latest';
 // left out on purpose: on new keys 2.5 is "no longer available" and full Flash can hang for 60s+.
 const FALLBACKS = ['gemini-flash-lite-latest', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'];
 const ATTEMPT_TIMEOUT_MS = 25000; // per Gemini call; on timeout switch to the next model
+// Transient Google errors (429 / 500 / 503 / network / empty answer): one quick retry on the same model
+// after ~1s, then fall through to the next model in the fallback chain (a busy model often stays busy
+// while another one answers).
+const TRANSIENT_BACKOFF_MS = [1000];
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const TOTAL_BUDGET_MS = 120000; // stay well inside the Edge Function wall-clock limit
 const MAX_BODY_BYTES = 12 * 1024 * 1024; // room for ~8 MB of base64 audio
 const MAX_TURNS = 80;
@@ -125,13 +130,22 @@ Deno.serve(async (req) => {
     if (!alt && !listed) { listed = true; const f = await listModels(key); if (f && !tried.has(f)) alt = f; }
     if (!alt) return false;
     model = alt;
+    transient = 0;
     if (requested === DEFAULT_MODEL) autoModel = alt;
+    return true;
+  };
+  let transient = 0; // transient-error retries used on the current model
+  const backoff = async () => {
+    if (transient >= TRANSIENT_BACKOFF_MS.length) return false;
+    const wait = TRANSIENT_BACKOFF_MS[transient++] + Math.floor(Math.random() * 250);
+    if (TOTAL_BUDGET_MS - (Date.now() - started) < wait + 5000) return false;
+    await sleep(wait);
     return true;
   };
 
   let last = { status: 502, kind: 'server', message: 'Google AI is busy right now. Please try again in a moment.' };
   const started = Date.now();
-  for (let attempt = 0; attempt < 6; attempt++) {
+  for (let attempt = 0; attempt < 12; attempt++) {
     const left = TOTAL_BUDGET_MS - (Date.now() - started);
     if (left < 3000) break;
     const generationConfig: Record<string, unknown> = { temperature };
@@ -157,7 +171,9 @@ Deno.serve(async (req) => {
         break;
       }
       last = { status: 502, kind: 'server', message: 'Could not reach Google AI. Please try again.' };
-      continue;
+      if (await backoff()) continue;
+      if (await switchModel()) continue;
+      break;
     }
     const data = await res.json().catch(() => null);
     if (!res.ok) {
@@ -170,11 +186,19 @@ Deno.serve(async (req) => {
         console.error('Gemini auth error', res.status, msg);
         return fail(502, 'nokey', 'AI key not set up yet (the server key was rejected by Google). Ask the app owner to check GEMINI_API_KEY.');
       }
-      if (res.status === 429) return fail(429, 'quota', 'The free AI limit was reached. Wait a minute and try again.');
+      if (res.status === 429) {
+        // One quick retry, then try the next model (limits are per model); report the limit if all are used up.
+        console.warn(`Gemini 429 on ${model} (retry ${transient + 1}/${TRANSIENT_BACKOFF_MS.length})`);
+        if (await backoff()) continue;
+        if (await switchModel()) continue;
+        return fail(429, 'quota', 'The free AI limit was reached. Wait a minute and try again.');
+      }
       if (res.status >= 500) {
+        console.warn(`Gemini ${res.status} on ${model} (retry ${transient + 1}/${TRANSIENT_BACKOFF_MS.length})`);
         last = { status: 502, kind: 'server', message: 'Google AI is busy right now. Please try again in a moment.' };
-        await new Promise((r) => setTimeout(r, 1000));
-        continue;
+        if (await backoff()) continue;
+        if (await switchModel()) continue;
+        break;
       }
       return fail(400, 'other', `AI error (${res.status}): ${msg}`);
     }
@@ -189,7 +213,9 @@ Deno.serve(async (req) => {
         ? { status: 422, kind: 'blocked', message: 'The answer was blocked by safety filters. Try rephrasing.' }
         : { status: 502, kind: 'server', message: 'The AI returned an empty answer. Please try again.' };
       if (cand.finishReason === 'SAFETY') break;
-      continue;
+      if (await backoff()) continue;
+      if (await switchModel()) continue;
+      break;
     }
     return reply(200, { text, model });
   }

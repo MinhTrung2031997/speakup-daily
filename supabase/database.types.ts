@@ -18,6 +18,7 @@ export type Database = {
         Row: {
           answer: string
           answer_date: string
+          builder: Json | null
           client_id: string | null
           created_at: string
           id: string
@@ -34,6 +35,7 @@ export type Database = {
         Insert: {
           answer?: string
           answer_date?: string
+          builder?: Json | null
           client_id?: string | null
           created_at?: string
           id?: string
@@ -50,6 +52,7 @@ export type Database = {
         Update: {
           answer?: string
           answer_date?: string
+          builder?: Json | null
           client_id?: string | null
           created_at?: string
           id?: string

@@ -3,6 +3,7 @@ import { useStore } from '../lib/store';
 import { prettyDate } from '../lib/date';
 import type { Entry } from '../lib/types';
 import UpgradeResult from '../components/UpgradeResult';
+import BuilderResult from '../components/BuilderResult';
 import { ShadowCard } from '../components/ShadowPractice';
 import FluencyCard from '../components/FluencyCard';
 import { Empty, PageTitle } from '../components/ui';
@@ -88,6 +89,7 @@ export default function History() {
 }
 
 function EntryRow({ e, open, onToggle }: { e: Entry; open: boolean; onToggle: () => void }) {
+  const { addPhrases } = useStore();
   return (
     <div className="card !p-0">
       <button onClick={onToggle} className="w-full p-4 text-left">
@@ -95,21 +97,22 @@ function EntryRow({ e, open, onToggle }: { e: Entry; open: boolean; onToggle: ()
           <span>{prettyDate(e.date)}</span>
           <span className="flex items-center gap-2">
             {e.fluency && <span className="chip bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300">{e.fluency.wpm} wpm</span>}
+            {e.builder && <span className="chip bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-200">🧩 Builder</span>}
             {e.retry && <span className="chip bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200">Retry {e.retry.score}</span>}
             {e.topicName}
           </span>
         </div>
         <p className="mt-1 font-medium text-slate-900 dark:text-white">{e.question}</p>
-        <p className="mt-1 line-clamp-2 text-sm text-slate-500 dark:text-slate-400">{e.answer}</p>
+        <p className="mt-1 line-clamp-2 text-sm text-slate-500 dark:text-slate-400">{e.answer || (e.builder ? 'Model answer built. Not tried yet.' : '')}</p>
       </button>
       {open && (
         <div className="border-t border-slate-200 p-3 dark:border-slate-800 sm:p-4">
           {e.fluency && <div className="mb-4"><FluencyCard stats={e.fluency} title="📈 Fluency (your answer)" /></div>}
-          {e.upgrade ? <UpgradeResult entry={e} /> : <p className="muted">No upgrade for this answer.</p>}
+          {e.builder && e.upgrade ? <BuilderResult entry={e} onSave={(items) => addPhrases(items, e.question)} /> : e.upgrade ? <UpgradeResult entry={e} /> : <p className="muted">No upgrade for this answer.</p>}
           {e.upgrade && <div className="mt-4"><ShadowCard text={e.upgrade.natural} phrases={e.upgrade.phrases.map((p) => p.phrase)} /></div>}
           {e.retry && (
             <div className="mt-3 rounded-xl bg-slate-50 p-3 text-sm dark:bg-slate-800/50">
-              <p className="font-semibold">Say it again: {e.retry.score}/100</p>
+              <p className="font-semibold">{e.builder ? 'Say it your way' : 'Say it again'}: {e.retry.score}/100</p>
               <p className="mt-1 text-slate-600 dark:text-slate-300">“{e.retry.attempt}”</p>
               {e.retry.tip && <p className="mt-1">💡 {e.retry.tip}</p>}
             </div>

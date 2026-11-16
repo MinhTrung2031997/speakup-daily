@@ -126,7 +126,8 @@ export async function generateJSON<T>(
       lastErr = e;
       // Only retry unreadable / empty / busy answers.
       if (!(e instanceof AIError) || !['parse', 'server', 'blocked', 'network'].includes(e.kind) || /safety|blocked \(/i.test(e.message)) break;
-      await new Promise((r) => setTimeout(r, 600));
+      // Short backoff (the Edge Function already retries Google 429/500/503 itself).
+      if (attempt < 2) await new Promise((r) => setTimeout(r, attempt === 0 ? 1000 : 2500));
     }
   }
   throw lastErr instanceof Error ? lastErr : new AIError('Something went wrong. Please try again.');

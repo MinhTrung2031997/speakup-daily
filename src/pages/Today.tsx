@@ -14,9 +14,12 @@ import FluencyCard from '../components/FluencyCard';
 import MicInput from '../components/MicInput';
 import UpgradeResult from '../components/UpgradeResult';
 import { ShadowCard } from '../components/ShadowPractice';
+import RetryCard from '../components/RetryCard';
+import AnswerBuilder from '../components/AnswerBuilder';
 import { ErrorBox, Spinner } from '../components/ui';
 import Icon from '../components/Icon';
 
+const MODE_KEY = 'speakup.todayMode';
 const normQ = (q: string) => q.toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim();
 
 function greeting() {
@@ -43,6 +46,13 @@ export default function Today() {
   const [answerSamples, setAnswerSamples] = useState<SpeechSample[]>([]);
   const [attemptSamples, setAttemptSamples] = useState<SpeechSample[]>([]);
   const autoTried = useRef(false);
+  const [mode, setMode] = useState<'daily' | 'builder'>(() => {
+    try { return localStorage.getItem(MODE_KEY) === 'builder' ? 'builder' : 'daily'; } catch { return 'daily'; }
+  });
+  const switchMode = (m: 'daily' | 'builder') => {
+    setMode(m);
+    try { localStorage.setItem(MODE_KEY, m); } catch { /* ignore */ }
+  };
   const resultRef = useRef<HTMLDivElement>(null);
 
   // Reset local drafts when the question changes.
@@ -160,6 +170,13 @@ export default function Today() {
         </div>
       </div>
 
+      <div className="grid grid-cols-2 rounded-xl bg-slate-100 p-1 dark:bg-slate-800" role="tablist">
+        <button role="tab" aria-selected={mode === 'daily'} onClick={() => switchMode('daily')} className={`rounded-lg px-3 py-2 text-sm font-medium ${mode === 'daily' ? 'bg-white shadow-sm dark:bg-slate-950' : 'text-slate-500'}`}>📅 Daily question</button>
+        <button role="tab" aria-selected={mode === 'builder'} onClick={() => switchMode('builder')} className={`rounded-lg px-3 py-2 text-sm font-medium ${mode === 'builder' ? 'bg-white shadow-sm dark:bg-slate-950' : 'text-slate-500'}`}>🧩 Answer builder</button>
+      </div>
+
+      {mode === 'builder' ? <AnswerBuilder /> : (
+      <>
       {/* Question card */}
       <section className="card relative overflow-hidden">
         <div className="pointer-events-none absolute -right-10 -top-10 h-36 w-36 rounded-full bg-blue-100/70 blur-2xl dark:bg-blue-900/30" />
@@ -258,35 +275,8 @@ export default function Today() {
           <Icon name="send" className="h-5 w-5 text-blue-600" />
         </Link>
       )}
-    </div>
-  );
-}
-
-function RetryCard({ entry }: { entry: Entry }) {
-  const r = entry.retry!;
-  const total = r.used.length + r.missed.length || 1;
-  const color = r.score >= 80 ? 'text-emerald-600 dark:text-emerald-300' : r.score >= 60 ? 'text-blue-600 dark:text-blue-300' : 'text-amber-600 dark:text-amber-300';
-  return (
-    <div className="rounded-xl border border-slate-200 p-3 dark:border-slate-700">
-      <div className="flex items-center gap-4">
-        <div className="relative h-16 w-16 shrink-0">
-          <svg viewBox="0 0 36 36" className="h-16 w-16 -rotate-90">
-            <circle cx="18" cy="18" r="15.9" fill="none" className="stroke-slate-200 dark:stroke-slate-800" strokeWidth="3.5" />
-            <circle cx="18" cy="18" r="15.9" fill="none" stroke="currentColor" className={color} strokeWidth="3.5" strokeDasharray={`${r.score} 100`} strokeLinecap="round" />
-          </svg>
-          <span className={`absolute inset-0 flex items-center justify-center text-lg font-bold ${color}`}>{r.score}</span>
-        </div>
-        <div className="text-sm">
-          <p className="font-semibold">{r.used.length}/{total} target phrases used</p>
-          {r.praise && <p className="text-slate-600 dark:text-slate-300">{r.praise}</p>}
-        </div>
-      </div>
-      <div className="mt-3 flex flex-wrap gap-1.5">
-        {r.used.map((p) => <span key={p} className="chip bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200">✓ {p}</span>)}
-        {r.missed.map((p) => <span key={p} className="chip bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400">○ {p}</span>)}
-      </div>
-      {r.fluency && <div className="mt-3"><FluencyCard stats={r.fluency} title="📈 Fluency (this try)" /></div>}
-      {r.tip && <p className="mt-3 rounded-lg bg-blue-50 p-2.5 text-sm text-blue-900 dark:bg-blue-950/50 dark:text-blue-100">💡 <b>Tip:</b> {r.tip}</p>}
+      </>
+      )}
     </div>
   );
 }
