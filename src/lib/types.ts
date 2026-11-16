@@ -56,6 +56,20 @@ export interface Upgrade {
   encouragement: string;
 }
 
+export interface FluencyStats {
+  words: number;
+  seconds: number; // speaking time used for WPM
+  wpm: number;
+  fillers: number;
+  fillerWords: Record<string, number>; // filler -> count
+  restarts: number;
+  restartExamples: string[];
+  pauses: number; // gaps > 2s between recognised phrases
+  longestPause: number; // seconds
+  tip: string;
+  createdAt: number;
+}
+
 export interface RetryResult {
   attempt: string;
   used: string[];
@@ -63,6 +77,7 @@ export interface RetryResult {
   score: number; // 0-100
   tip: string;
   praise: string;
+  fluency?: FluencyStats;
 }
 
 export interface Entry {
@@ -74,6 +89,8 @@ export interface Entry {
   answer: string;
   upgrade?: Upgrade;
   retry?: RetryResult;
+  /** Fluency stats from speaking the original answer (only when the mic was used). */
+  fluency?: FluencyStats;
   createdAt: number;
 }
 

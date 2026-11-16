@@ -4,6 +4,7 @@ import { prettyDate } from '../lib/date';
 import type { Entry } from '../lib/types';
 import UpgradeResult from '../components/UpgradeResult';
 import { ShadowCard } from '../components/ShadowPractice';
+import FluencyCard from '../components/FluencyCard';
 import { Empty, PageTitle } from '../components/ui';
 import { FeedbackCard } from './Chat';
 import Icon from '../components/Icon';
@@ -93,6 +94,7 @@ function EntryRow({ e, open, onToggle }: { e: Entry; open: boolean; onToggle: ()
         <div className="flex items-center justify-between gap-2 text-xs text-slate-500">
           <span>{prettyDate(e.date)}</span>
           <span className="flex items-center gap-2">
+            {e.fluency && <span className="chip bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300">{e.fluency.wpm} wpm</span>}
             {e.retry && <span className="chip bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200">Retry {e.retry.score}</span>}
             {e.topicName}
           </span>
@@ -102,6 +104,7 @@ function EntryRow({ e, open, onToggle }: { e: Entry; open: boolean; onToggle: ()
       </button>
       {open && (
         <div className="border-t border-slate-200 p-3 dark:border-slate-800 sm:p-4">
+          {e.fluency && <div className="mb-4"><FluencyCard stats={e.fluency} title="📈 Fluency (your answer)" /></div>}
           {e.upgrade ? <UpgradeResult entry={e} /> : <p className="muted">No upgrade for this answer.</p>}
           {e.upgrade && <div className="mt-4"><ShadowCard text={e.upgrade.natural} phrases={e.upgrade.phrases.map((p) => p.phrase)} /></div>}
           {e.retry && (

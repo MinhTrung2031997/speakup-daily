@@ -1,5 +1,5 @@
 import { addDays, todayStr } from './date';
-import type { AppState } from './types';
+import type { AppState, FluencyStats } from './types';
 import { MASTERED_STAGE } from './srs';
 
 export function activeDates(s: AppState): Set<string> {
@@ -37,4 +37,30 @@ export function phraseStats(s: AppState) {
   const learned = s.phrases.filter((p) => p.stage >= 1).length;
   const mastered = s.phrases.filter((p) => p.stage >= MASTERED_STAGE).length;
   return { total: s.phrases.length, learned, mastered };
+}
+
+/** Every stored fluency record (original answers and "say it again" tries), tagged with its date. */
+export function fluencyRecords(s: AppState): (FluencyStats & { date: string })[] {
+  return s.entries.flatMap((e) => [e.fluency, e.retry?.fluency].filter((f): f is FluencyStats => !!f).map((f) => ({ ...f, date: e.date })));
+}
+
+const round1 = (n: number) => Math.round(n * 10) / 10;
+
+/** Per-day fluency averages for the given dates (0 = no spoken answers that day). */
+export function fluencyByDay(s: AppState, days: string[]) {
+  const recs = fluencyRecords(s);
+  return days.map((d) => {
+    const list = recs.filter((r) => r.date === d);
+    const n = list.length;
+    const words = list.reduce((a, r) => a + r.words, 0);
+    const secs = list.reduce((a, r) => a + r.seconds, 0);
+    return {
+      date: d,
+      count: n,
+      wpm: secs ? Math.round(words / (secs / 60)) : 0,
+      fillersPer100: words ? round1((list.reduce((a, r) => a + r.fillers, 0) / words) * 100) : 0,
+      restarts: n ? round1(list.reduce((a, r) => a + r.restarts, 0) / n) : 0,
+      pauses: n ? round1(list.reduce((a, r) => a + r.pauses, 0) / n) : 0,
+    };
+  });
 }

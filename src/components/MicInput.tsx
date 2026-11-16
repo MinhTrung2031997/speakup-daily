@@ -1,5 +1,5 @@
 import { useRef } from 'react';
-import { useSpeechRecognition } from '../lib/speech';
+import { useSpeechRecognition, type SpeechSample } from '../lib/speech';
 import { useStore } from '../lib/store';
 import Icon from './Icon';
 
@@ -12,10 +12,12 @@ interface Props {
   /** Chat mode: Enter sends, shows a send button. */
   onSend?: () => void;
   sendDisabled?: boolean;
+  /** Called after each mic session with the transcript and timing (for fluency stats). */
+  onSpeech?: (sample: SpeechSample) => void;
 }
 
 /** Text box with a mic button that appends speech-to-text into the box. */
-export default function MicInput({ value, onChange, placeholder, rows = 4, disabled, onSend, sendDisabled }: Props) {
+export default function MicInput({ value, onChange, placeholder, rows = 4, disabled, onSend, sendDisabled, onSpeech }: Props) {
   const { addSpeaking } = useStore();
   const valueRef = useRef(value);
   valueRef.current = value;
@@ -28,6 +30,7 @@ export default function MicInput({ value, onChange, placeholder, rows = 4, disab
       onChange(next);
     },
     onSession: (sec) => addSpeaking(sec),
+    onSample: (s) => s.transcript && onSpeech?.(s),
   });
 
   return (

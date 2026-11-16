@@ -1,6 +1,6 @@
 import { useStore } from '../lib/store';
 import { addDays, lastNDays, todayStr } from '../lib/date';
-import { activeDates, phraseStats, streak } from '../lib/stats';
+import { activeDates, fluencyByDay, fluencyRecords, phraseStats, streak } from '../lib/stats';
 import { MASTERED_STAGE } from '../lib/srs';
 import BarChart from '../components/BarChart';
 import { PageTitle } from '../components/ui';
@@ -24,6 +24,13 @@ export default function Progress() {
   const short = (d: string) => String(Number(d.slice(8)));
   const answersData = days.map((d) => ({ label: short(d), value: state.entries.filter((e) => e.date === d).length }));
   const minutesData = days.map((d) => ({ label: short(d), value: Math.round(((state.speakingLog[d] || 0) / 60) * 10) / 10 }));
+  const flu = fluencyByDay(state, days);
+  const fluData = (key: 'wpm' | 'fillersPer100' | 'restarts' | 'pauses') => flu.map((d) => ({ label: short(d.date), value: d[key], title: d.count ? `${d.date}: ${d[key]} (${d.count} spoken answer${d.count > 1 ? 's' : ''})` : `${d.date}: no spoken answers` }));
+  const fluRecs = fluencyRecords(state);
+  const recent = [...fluRecs].sort((a, b) => b.createdAt - a.createdAt).slice(0, 5);
+  const avgOf = (k: 'wpm' | 'restarts' | 'pauses') => (recent.length ? Math.round((recent.reduce((a, r) => a + r[k], 0) / recent.length) * 10) / 10 : 0);
+  const recentWords = recent.reduce((a, r) => a + r.words, 0);
+  const recentFillers = recentWords ? Math.round((recent.reduce((a, r) => a + r.fillers, 0) / recentWords) * 1000) / 10 : 0;
   const userMsgs = state.chats.reduce((n, c) => n + c.messages.filter((m) => m.role === 'user').length, 0);
 
   const stages = Array.from({ length: MASTERED_STAGE + 1 }, (_, i) => state.phrases.filter((p) => Math.min(p.stage, MASTERED_STAGE) === i).length);
@@ -60,6 +67,38 @@ export default function Progress() {
           <p className="muted mb-2 text-xs">Last 14 days</p>
           <BarChart data={minutesData} color="fill-emerald-500" unit=" min" />
         </div>
+      </div>
+
+      <div className="card">
+        <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
+          <div>
+            <h2 className="h-section">🗣️ Fluency trends</h2>
+            <p className="muted text-xs">Last 14 days · from answers you spoke with the mic</p>
+          </div>
+          {recent.length > 0 && <p className="text-xs text-slate-500">Last {recent.length}: <b>{Math.round(avgOf('wpm'))}</b> wpm · <b>{recentFillers}</b> fillers/100 words · <b>{avgOf('restarts')}</b> restarts · <b>{avgOf('pauses')}</b> long pauses</p>}
+        </div>
+        {fluRecs.length ? (
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <p className="text-sm font-medium">Pace <span className="text-xs font-normal text-slate-400">words per minute (aim 110–160)</span></p>
+              <BarChart data={fluData('wpm')} color="fill-sky-500" unit=" wpm" />
+            </div>
+            <div>
+              <p className="text-sm font-medium">Fillers <span className="text-xs font-normal text-slate-400">per 100 words (lower is better)</span></p>
+              <BarChart data={fluData('fillersPer100')} color="fill-amber-500" />
+            </div>
+            <div>
+              <p className="text-sm font-medium">Restarts <span className="text-xs font-normal text-slate-400">per answer, like “I think I think”</span></p>
+              <BarChart data={fluData('restarts')} color="fill-violet-500" />
+            </div>
+            <div>
+              <p className="text-sm font-medium">Long pauses <span className="text-xs font-normal text-slate-400">over 2s, per answer</span></p>
+              <BarChart data={fluData('pauses')} color="fill-rose-400" />
+            </div>
+          </div>
+        ) : (
+          <p className="muted rounded-xl border border-dashed border-slate-300 p-6 text-center dark:border-slate-700">🎙️ Answer today's question with the mic to start tracking your pace, filler words, restarts and pauses.</p>
+        )}
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">

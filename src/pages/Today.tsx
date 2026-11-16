@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useStore } from '../lib/store';
 import { todaysQuestion, useAIConfig } from '../lib/hooks';
@@ -8,6 +8,9 @@ import { prettyDate, todayStr, uid } from '../lib/date';
 import { isDue } from '../lib/srs';
 import { streak } from '../lib/stats';
 import type { DailyQuestion, Entry } from '../lib/types';
+import type { SpeechSample } from '../lib/speech';
+import { analyzeFluency } from '../lib/fluency';
+import FluencyCard from '../components/FluencyCard';
 import MicInput from '../components/MicInput';
 import UpgradeResult from '../components/UpgradeResult';
 import { ShadowCard } from '../components/ShadowPractice';
@@ -37,6 +40,8 @@ export default function Today() {
   const [attempt, setAttempt] = useState('');
   const [scoring, setScoring] = useState(false);
   const [retryError, setRetryError] = useState('');
+  const [answerSamples, setAnswerSamples] = useState<SpeechSample[]>([]);
+  const [attemptSamples, setAttemptSamples] = useState<SpeechSample[]>([]);
   const autoTried = useRef(false);
   const resultRef = useRef<HTMLDivElement>(null);
 
@@ -48,8 +53,18 @@ export default function Today() {
     setSavedMsg('');
     setUpError('');
     setRetryError('');
+    setAnswerSamples([]);
+    setAttemptSamples([]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q?.id]);
+
+  // Clearing the box starts a fresh answer, so drop its speech stats too.
+  useEffect(() => { if (!answer.trim()) setAnswerSamples([]); }, [answer]);
+  useEffect(() => { if (!attempt.trim()) setAttemptSamples([]); }, [attempt]);
+
+  const liveFluency = useMemo(() => analyzeFluency(answerSamples), [answerSamples]);
+  const attemptFluency = useMemo(() => analyzeFluency(attemptSamples), [attemptSamples]);
+  const answerFluency = liveFluency || (entry && entry.answer === answer.trim() ? entry.fluency : undefined);
 
   const newQuestion = useCallback(async () => {
     setLoadingQ(true);
@@ -93,9 +108,10 @@ export default function Today() {
     setSavedMsg('');
     try {
       const up = await upgradeAnswer(ai, state.profile, q.question, answer.trim());
+      const fluency = answerFluency || undefined;
       const e: Entry = entry
-        ? { ...entry, answer: answer.trim(), upgrade: up, retry: undefined }
-        : { id: uid(), date: todayStr(), questionId: q.id, question: q.question, topicName: q.topicName, answer: answer.trim(), upgrade: up, createdAt: Date.now() };
+        ? { ...entry, answer: answer.trim(), upgrade: up, retry: undefined, fluency }
+        : { id: uid(), date: todayStr(), questionId: q.id, question: q.question, topicName: q.topicName, answer: answer.trim(), upgrade: up, fluency, createdAt: Date.now() };
       update((s) => ({ ...s, entries: entry ? s.entries.map((x) => (x.id === e.id ? e : x)) : [...s.entries, e] }));
       const n = addPhrases(up.phrases, q.question);
       logActivity();
@@ -116,6 +132,7 @@ export default function Today() {
     setRetryError('');
     try {
       const r = await scoreRetry(ai, entry.question, entry.upgrade.natural, entry.upgrade.phrases.map((p) => p.phrase), attempt.trim());
+      if (attemptFluency) r.fluency = attemptFluency;
       update((s) => ({ ...s, entries: s.entries.map((x) => (x.id === entry.id ? { ...x, retry: r } : x)) }));
       logActivity();
       setPractice(false);
@@ -186,7 +203,8 @@ export default function Today() {
             <h2 className="h-section">🎙️ Your answer</h2>
             <p className="muted">Say it out loud with the mic, or type. Don't worry about mistakes. Just get your idea out.</p>
           </div>
-          <MicInput value={answer} onChange={setAnswer} placeholder="Tap the mic and speak, or type your answer here…" rows={5} />
+          <MicInput value={answer} onChange={setAnswer} onSpeech={(s) => setAnswerSamples((a) => [...a, s])} placeholder="Tap the mic and speak, or type your answer here…" rows={5} />
+          {answerFluency ? <FluencyCard stats={answerFluency} /> : answer.trim() && <p className="muted text-xs">🎙️ Answer with the mic to see your pace, filler words, restarts and long pauses.</p>}
           <div className="flex flex-wrap items-center gap-2">
             <button className="btn-primary" onClick={doUpgrade} disabled={!answer.trim() || upgrading || !ai.hasKey}>
               {upgrading ? <Spinner /> : <Icon name="sparkles" className="h-4 w-4" />} {entry?.upgrade ? 'Upgrade again' : 'Upgrade my answer'}
@@ -211,14 +229,15 @@ export default function Today() {
               <p className="muted">After shadowing, hide the model answer and say it again in your own way, using the new phrases.</p>
             </div>
             {!practice ? (
-              <button className="btn-soft" onClick={() => { setPractice(true); setAttempt(''); }}><Icon name="mic" className="h-4 w-4" /> Hide answer &amp; try again</button>
+              <button className="btn-soft" onClick={() => { setPractice(true); setAttempt(''); setAttemptSamples([]); }}><Icon name="mic" className="h-4 w-4" /> Hide answer &amp; try again</button>
             ) : (
               <>
                 <div className="flex flex-wrap gap-1.5">
                   <span className="text-xs text-slate-500">Try to use:</span>
                   {entry.upgrade.phrases.map((p) => <span key={p.phrase} className="chip bg-amber-100 text-amber-800 dark:bg-amber-400/15 dark:text-amber-200">{p.phrase}</span>)}
                 </div>
-                <MicInput value={attempt} onChange={setAttempt} placeholder="Answer again without looking…" rows={4} />
+                <MicInput value={attempt} onChange={setAttempt} onSpeech={(s) => setAttemptSamples((a) => [...a, s])} placeholder="Answer again without looking…" rows={4} />
+                {attemptFluency && <FluencyCard stats={attemptFluency} title="📈 Fluency (this try)" />}
                 <div className="flex gap-2">
                   <button className="btn-primary" onClick={doScore} disabled={!attempt.trim() || scoring}>{scoring ? <Spinner /> : <Icon name="check" className="h-4 w-4" />} Check my attempt</button>
                   <button className="btn-ghost" onClick={() => setPractice(false)}>Show answer</button>
@@ -268,6 +287,7 @@ function RetryCard({ entry }: { entry: Entry }) {
         {r.used.map((p) => <span key={p} className="chip bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200">✓ {p}</span>)}
         {r.missed.map((p) => <span key={p} className="chip bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400">○ {p}</span>)}
       </div>
+      {r.fluency && <div className="mt-3"><FluencyCard stats={r.fluency} title="📈 Fluency (this try)" /></div>}
       {r.tip && <p className="mt-3 rounded-lg bg-blue-50 p-2.5 text-sm text-blue-900 dark:bg-blue-950/50 dark:text-blue-100">💡 <b>Tip:</b> {r.tip}</p>}
     </div>
   );

@@ -39,27 +39,54 @@ export function createRecognition(): SpeechRecognitionLike | null {
   return rec;
 }
 
+/** One mic session: what was heard plus timing, used for fluency stats. */
+export interface SpeechSample {
+  transcript: string;
+  startedAt: number;
+  endedAt: number;
+  /** Time of the first / last recognition result (0 if nothing was heard). */
+  firstResultAt: number;
+  lastResultAt: number;
+  /** Silent gaps (ms) longer than PAUSE_MS between recognition results. */
+  pauses: number[];
+}
+
+export const PAUSE_MS = 2000;
+
 export interface RecognitionHandlers {
   /** Called with final text chunks as they are recognised. */
   onFinal: (text: string) => void;
   /** Called when a recording session ends, with its length in seconds. */
   onSession?: (seconds: number) => void;
+  /** Called when a recording session ends, with its transcript and timing. */
+  onSample?: (sample: SpeechSample) => void;
 }
 
-export function useSpeechRecognition({ onFinal, onSession }: RecognitionHandlers) {
+export function useSpeechRecognition({ onFinal, onSession, onSample }: RecognitionHandlers) {
   const [listening, setListening] = useState(false);
   const [interim, setInterim] = useState('');
   const [error, setError] = useState('');
   const recRef = useRef<SpeechRecognitionLike | null>(null);
   const wantRef = useRef(false);
   const startedAt = useRef(0);
-  const handlers = useRef({ onFinal, onSession });
-  handlers.current = { onFinal, onSession };
+  const handlers = useRef({ onFinal, onSession, onSample });
+  handlers.current = { onFinal, onSession, onSample };
+  const timing = useRef({ first: 0, last: 0, pauses: [] as number[], finals: [] as string[] });
   const supported = speechRecognitionSupported();
 
   const finish = useCallback(() => {
     if (startedAt.current) {
-      handlers.current.onSession?.((Date.now() - startedAt.current) / 1000);
+      const now = Date.now();
+      handlers.current.onSession?.((now - startedAt.current) / 1000);
+      const t = timing.current;
+      handlers.current.onSample?.({
+        transcript: t.finals.join(' ').trim(),
+        startedAt: startedAt.current,
+        endedAt: now,
+        firstResultAt: t.first,
+        lastResultAt: t.last,
+        pauses: t.pauses,
+      });
       startedAt.current = 0;
     }
     setListening(false);
@@ -78,10 +105,18 @@ export function useSpeechRecognition({ onFinal, onSession }: RecognitionHandlers
     rec.continuous = true;
     rec.interimResults = true;
     rec.onresult = (e) => {
+      const now = Date.now();
+      const t = timing.current;
+      if (t.last && now - t.last > PAUSE_MS) t.pauses.push(now - t.last);
+      if (!t.first) t.first = now;
+      t.last = now;
       let interimText = '';
       for (let i = e.resultIndex; i < e.results.length; i++) {
         const r = e.results[i];
-        if (r.isFinal) handlers.current.onFinal(r[0].transcript.trim());
+        if (r.isFinal) {
+          t.finals.push(r[0].transcript.trim());
+          handlers.current.onFinal(r[0].transcript.trim());
+        }
         else interimText += r[0].transcript;
       }
       setInterim(interimText);
@@ -111,6 +146,7 @@ export function useSpeechRecognition({ onFinal, onSession }: RecognitionHandlers
     };
     recRef.current = rec;
     wantRef.current = true;
+    timing.current = { first: 0, last: 0, pauses: [], finals: [] };
     try {
       rec.start();
       startedAt.current = Date.now();
