@@ -4,10 +4,11 @@ import type { GeminiConfig } from './gemini';
 import { todayStr } from './date';
 import type { AppState } from './types';
 
+/** AI settings. The Gemini key lives on the server, so AI is always "available" to signed-in users. */
 export function useAIConfig(): GeminiConfig & { hasKey: boolean } {
   const { state } = useStore();
-  const { apiKey, model, fastMode } = state.settings;
-  return useMemo(() => ({ apiKey, model, fastMode, hasKey: !!apiKey.trim() }), [apiKey, model, fastMode]);
+  const { model, fastMode, demo } = state.settings;
+  return useMemo(() => ({ model, fastMode, demo, hasKey: true }), [model, fastMode, demo]);
 }
 
 /** The current question for today (the most recent one created today). */

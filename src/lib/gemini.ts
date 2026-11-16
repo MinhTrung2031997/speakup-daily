@@ -1,4 +1,5 @@
 import { mockResponse } from './mock';
+import { supabase, SUPABASE_URL } from './supabase';
 
 export class AIError extends Error {
   constructor(message: string, public kind: 'nokey' | 'auth' | 'quota' | 'network' | 'blocked' | 'parse' | 'server' | 'other' = 'other') {
@@ -7,59 +8,30 @@ export class AIError extends Error {
 }
 
 export interface GeminiConfig {
-  apiKey: string;
   model: string;
   fastMode: boolean;
+  /** Demo mode: canned sample answers, no AI calls (stored per device). */
+  demo: boolean;
 }
 
 export interface GeminiTurn {
   role: 'user' | 'model';
   text: string;
+  /** Optional recorded audio for this turn (base64, audio/* mime type), e.g. for pronunciation feedback. */
+  audio?: { mimeType: string; data: string };
 }
 
+export const NO_KEY_MESSAGE = 'AI key not set up yet. The app owner needs to add the GEMINI_API_KEY secret in Supabase (see README).';
 
-const AUTO_KEY = 'speakup.autoModel';
+const DEMO_FLAG = 'speakup.demo';
 
-function getAutoModel(requested: string): string | null {
-  try {
-    const raw = localStorage.getItem(AUTO_KEY);
-    if (!raw) return null;
-    const v = JSON.parse(raw) as { requested: string; use: string };
-    return v.requested === requested ? v.use : null;
-  } catch { return null; }
+export function getDemoMode(): boolean {
+  if (typeof window !== 'undefined' && (window as unknown as { __SPEAKUP_MOCK__?: boolean }).__SPEAKUP_MOCK__ === true) return true;
+  try { return localStorage.getItem(DEMO_FLAG) === '1'; } catch { return false; }
 }
 
-/** Ask Google which models this key can use and pick the best fast Flash model. */
-export async function findWorkingModel(apiKey: string): Promise<string | null> {
-  try {
-    const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=200', { headers: { 'x-goog-api-key': apiKey.trim() } });
-    if (!res.ok) return null;
-    const data = await res.json();
-    const names: string[] = (data?.models || [])
-      .filter((m: { supportedGenerationMethods?: string[] }) => (m.supportedGenerationMethods || []).includes('generateContent'))
-      .map((m: { name: string }) => m.name.replace(/^models\//, ''))
-      .filter((n: string) => /^gemini/.test(n) && !/(tts|image|audio|live|embedding|vision|robotics|computer-use|native)/.test(n));
-    if (!names.length) return null;
-    const score = (n: string) => {
-      let sc = 0;
-      if (/flash-lite-latest$/.test(n)) sc += 2000;
-      if (/flash-latest$/.test(n)) sc += 1000;
-      if (/flash/.test(n)) sc += 500;
-      if (/lite/.test(n)) sc += 300;
-      if (/^gemini-2\./.test(n)) sc -= 1000;
-      if (/(preview|exp)/.test(n)) sc -= 50;
-      const v = n.match(/gemini-(\d+(?:\.\d+)?)/);
-      if (v) sc += parseFloat(v[1]) * 10;
-      return sc;
-    };
-    return names.sort((a, b) => score(b) - score(a))[0];
-  } catch { return null; }
-}
-
-export const DEMO_KEY = 'demo';
-
-export function isDemoKey(key: string): boolean {
-  return key.trim().toLowerCase() === DEMO_KEY || (typeof window !== 'undefined' && (window as unknown as { __SPEAKUP_MOCK__?: boolean }).__SPEAKUP_MOCK__ === true);
+export function setDemoMode(on: boolean) {
+  try { if (on) localStorage.setItem(DEMO_FLAG, '1'); else localStorage.removeItem(DEMO_FLAG); } catch { /* ignore */ }
 }
 
 function extractJson(text: string): unknown {
@@ -71,14 +43,68 @@ function extractJson(text: string): unknown {
   } catch {
     const start = t.search(/[[{]/);
     const end = Math.max(t.lastIndexOf('}'), t.lastIndexOf(']'));
-    if (start >= 0 && end > start) return JSON.parse(t.slice(start, end + 1));
+    if (start >= 0 && end > start) {
+      try { return JSON.parse(t.slice(start, end + 1)); } catch { /* fall through */ }
+    }
     throw new AIError('The AI sent an answer I could not read. Please try again.', 'parse');
   }
 }
 
 /**
- * Call Gemini generateContent directly from the browser and return parsed JSON.
- * `task` is only used to pick a canned response in demo / mock mode.
+ * Send a request to the `ai` Supabase Edge Function, which calls Gemini with the server-side key.
+ * Returns the model's raw text.
+ */
+export async function callAI(cfg: GeminiConfig, system: string, turns: GeminiTurn[], temperature = 0.8, json = true): Promise<string> {
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  if (!token) throw new AIError('Please sign in again to use AI features.', 'auth');
+  const body = {
+    system,
+    temperature,
+    json,
+    model: cfg.model || 'gemini-flash-lite-latest',
+    fastMode: cfg.fastMode,
+    turns: turns.map((t) => ({
+      role: t.role,
+      text: t.text,
+      ...(t.audio ? { parts: [{ inlineData: { mimeType: t.audio.mimeType, data: t.audio.data } }] } : {}),
+    })),
+  };
+  let res: Response;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 90000);
+  try {
+    res = await fetch(`${SUPABASE_URL}/functions/v1/ai`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(body),
+      signal: ctrl.signal,
+    });
+  } catch (e) {
+    if ((e as Error)?.name === 'AbortError') throw new AIError('The AI took too long to answer. Please try again.', 'server');
+    throw new AIError('Could not reach the AI server. Check your internet connection and try again.', 'network');
+  } finally {
+    clearTimeout(timer);
+  }
+  const out = await res.json().catch(() => null);
+  if (!res.ok) {
+    const kind = out?.error?.kind as string | undefined;
+    const msg = (out?.error?.message as string | undefined) || (out?.msg as string | undefined) || res.statusText || 'Unknown error';
+    if (kind === 'nokey') throw new AIError(NO_KEY_MESSAGE, 'nokey');
+    if (res.status === 401) throw new AIError('Your session expired. Please sign out and sign in again.', 'auth');
+    if (kind === 'quota' || res.status === 429) throw new AIError(msg, 'quota');
+    if (kind === 'blocked') throw new AIError(msg, 'blocked');
+    if (res.status === 404) throw new AIError('The AI server is not deployed yet (Edge Function "ai" not found).', 'server');
+    if (res.status >= 500) throw new AIError(msg, 'server');
+    throw new AIError(msg, 'other');
+  }
+  const text = typeof out?.text === 'string' ? out.text : '';
+  if (!text) throw new AIError('The AI returned an empty answer. Please try again.', 'blocked');
+  return text;
+}
+
+/**
+ * Ask the AI for JSON. `task` is only used to pick a canned response in demo mode.
  */
 export async function generateJSON<T>(
   cfg: GeminiConfig,
@@ -87,93 +113,20 @@ export async function generateJSON<T>(
   turns: GeminiTurn[],
   temperature = 0.8,
 ): Promise<T> {
-  if (!cfg.apiKey.trim()) throw new AIError('Add your free Gemini API key in Settings to use AI features.', 'nokey');
-  if (isDemoKey(cfg.apiKey)) {
+  if (cfg.demo || getDemoMode()) {
     await new Promise((r) => setTimeout(r, 450));
     return mockResponse(task, turns) as T;
   }
-  const requested = (cfg.model || 'gemini-flash-lite-latest').trim().replace(/^models\//, '');
-  let model = getAutoModel(requested) || requested;
-  const tried = new Set<string>();
-  const FALLBACKS = ['gemini-flash-lite-latest', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'];
-  let listed = false;
-  const switchModel = async (): Promise<boolean> => {
-    tried.add(model);
-    let alt = FALLBACKS.find((m) => !tried.has(m));
-    if (!alt && !listed) { listed = true; const f = await findWorkingModel(cfg.apiKey); if (f && !tried.has(f)) alt = f; }
-    if (!alt) return false;
-    model = alt;
-    try { localStorage.setItem(AUTO_KEY, JSON.stringify({ requested, use: alt })); } catch { /* ignore */ }
-    return true;
-  };
-  const build = () => {
-    const generationConfig: Record<string, unknown> = { responseMimeType: 'application/json', temperature };
-    if (cfg.fastMode && /^gemini-2\.5-flash/.test(model)) generationConfig.thinkingConfig = { thinkingBudget: 0 };
-    return {
-      url: `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
-      body: {
-        systemInstruction: { parts: [{ text: system }] },
-        contents: turns.map((t) => ({ role: t.role, parts: [{ text: t.text }] })),
-        generationConfig,
-      },
-    };
-  };
-
   let lastErr: unknown;
-  for (let attempt = 0; attempt < 6; attempt++) {
-    const { url, body } = build();
-    let res: Response;
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 25000);
+  for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': cfg.apiKey.trim() },
-        body: JSON.stringify(body),
-        signal: ctrl.signal,
-      });
-    } catch (e) {
-      clearTimeout(timer);
-      if ((e as Error)?.name === 'AbortError') {
-        lastErr = new AIError(`Model "${model}" took too long to answer. Try again or pick another model in Settings.`, 'server');
-        if (await switchModel()) continue;
-        throw lastErr;
-      }
-      lastErr = new AIError('Could not reach Google AI. Check your internet connection and try again.', 'network');
-      continue;
-    }
-    clearTimeout(timer);
-    const data = await res.json().catch(() => null);
-    if (!res.ok) {
-      const msg: string = data?.error?.message || res.statusText || 'Unknown error';
-      if (res.status === 400 && /api key/i.test(msg)) throw new AIError('Your Gemini API key looks invalid. Please check it in Settings.', 'auth');
-      if (res.status === 401 || res.status === 403) throw new AIError(`Google refused the request (${res.status}). Check your API key in Settings. Details: ${msg}`, 'auth');
-      if (res.status === 404 || (res.status === 400 && /model/i.test(msg) && /(not found|not supported|unsupported)/i.test(msg))) {
-        if (await switchModel()) continue;
-        throw new AIError(`Model "${model}" isn't available for your key. Open Settings and pick another model from the list.`, 'other');
-      }
-      if (res.status === 429) throw new AIError('You hit the free-tier rate limit. Wait a minute and try again (or switch to gemini-flash-lite-latest in Settings).', 'quota');
-      if (res.status >= 500) {
-        lastErr = new AIError('Google AI is busy right now. Please try again in a moment.', 'server');
-        await new Promise((r) => setTimeout(r, 1200));
-        continue;
-      }
-      throw new AIError(`AI error (${res.status}): ${msg}`, 'other');
-    }
-    const cand = data?.candidates?.[0];
-    if (!cand) {
-      const reason = data?.promptFeedback?.blockReason;
-      throw new AIError(reason ? `The request was blocked (${reason}). Try rephrasing.` : 'The AI returned no answer. Please try again.', 'blocked');
-    }
-    const text: string = (cand.content?.parts || []).map((p: { text?: string }) => p.text || '').join('');
-    if (!text) {
-      lastErr = new AIError(cand.finishReason === 'SAFETY' ? 'The answer was blocked by safety filters. Try rephrasing.' : 'The AI returned an empty answer. Please try again.', 'blocked');
-      continue;
-    }
-    try {
+      const text = await callAI(cfg, system, turns, temperature, true);
       return extractJson(text) as T;
     } catch (e) {
       lastErr = e;
+      // Only retry unreadable / empty / busy answers.
+      if (!(e instanceof AIError) || !['parse', 'server', 'blocked', 'network'].includes(e.kind) || /safety|blocked \(/i.test(e.message)) break;
+      await new Promise((r) => setTimeout(r, 600));
     }
   }
   throw lastErr instanceof Error ? lastErr : new AIError('Something went wrong. Please try again.');

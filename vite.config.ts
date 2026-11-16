@@ -1,8 +1,9 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
-// Relative base so the build works on any static host or subpath (GitHub Pages, Netlify, Vercel...)
+// Served from the domain root (Vercel). Client routes like /phrases are handled by the
+// SPA rewrite in vercel.json.
 export default defineConfig({
-  base: './',
+  base: '/',
   plugins: [react()],
 });

@@ -14,7 +14,7 @@ import FluencyCard from '../components/FluencyCard';
 import MicInput from '../components/MicInput';
 import UpgradeResult from '../components/UpgradeResult';
 import { ShadowCard } from '../components/ShadowPractice';
-import { ErrorBox, NoKeyBanner, Spinner } from '../components/ui';
+import { ErrorBox, Spinner } from '../components/ui';
 import Icon from '../components/Icon';
 
 const normQ = (q: string) => q.toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim();
@@ -159,8 +159,6 @@ export default function Today() {
           {due > 0 && <Link to="/phrases" className="chip bg-amber-100 text-amber-800 hover:bg-amber-200 dark:bg-amber-400/15 dark:text-amber-200">🔁 {due} to review</Link>}
         </div>
       </div>
-
-      {!ai.hasKey && <NoKeyBanner />}
 
       {/* Question card */}
       <section className="card relative overflow-hidden">

@@ -17,13 +17,14 @@ export interface Topic {
 }
 
 export interface Settings {
-  apiKey: string;
   model: string;
   dark: boolean;
   voiceURI: string;
   rate: number;
   onboarded: boolean;
   fastMode: boolean;
+  /** Demo mode (sample AI answers). Saved per device, not in the database. */
+  demo: boolean;
 }
 
 export interface DailyQuestion {
@@ -145,4 +146,16 @@ export interface AppState {
   chats: ChatSession[];
   speakingLog: Record<string, number>; // date -> seconds spoken
   activityLog: Record<string, number>; // date -> count of practice actions
+}
+
+/** One shadowing take, saved to the shadowing_attempts table (recording optional). */
+export interface ShadowAttemptInput {
+  sourceText: string;
+  sentenceIndex: number;
+  sentence: string;
+  transcript: string;
+  score: number | null;
+  seconds: number;
+  /** Object URL of the recorded audio; uploaded to the private `recordings` bucket if present. */
+  audioUrl?: string;
 }

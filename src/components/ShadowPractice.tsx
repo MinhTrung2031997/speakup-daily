@@ -32,10 +32,11 @@ function playUrl(url: string, audioRef: MutableRefObject<HTMLAudioElement | null
 
 /**
  * Shadowing: listen to one sentence, repeat it, then hear the model and yourself back to back.
- * Recordings live only in memory (object URLs) and are revoked on re-record and on close.
+ * Playback uses in-memory object URLs (revoked on re-record and on close); each take is also saved
+ * to shadowing_attempts, with the audio uploaded to the private `recordings` bucket.
  */
 export default function ShadowPractice({ text, phrases = [], onClose }: { text: string; phrases?: string[]; onClose?: () => void }) {
-  const { state, addSpeaking, logActivity } = useStore();
+  const { state, addSpeaking, logActivity, saveShadow } = useStore();
   const { rate, voiceURI } = state.settings;
   const sentences = useMemo(() => splitSentences(text), [text]);
   const rec = useRecorder();
@@ -78,10 +79,13 @@ export default function ShadowPractice({ text, phrases = [], onClose }: { text: 
       logged.current = true;
       logActivity();
     }
+    const score = rec.canTranscribe ? matchScore(sentence, r.transcript).score : null;
+    // Save the attempt (and upload the recording to the private bucket) in the background.
+    saveShadow({ sourceText: text, sentenceIndex: idx, sentence, transcript: r.transcript, score, seconds: r.seconds, audioUrl: r.url || undefined });
     setTakes((all) => {
       const old = all[idx];
       if (old?.url && old.url !== r.url) URL.revokeObjectURL(old.url);
-      return { ...all, [idx]: { ...r, score: rec.canTranscribe ? matchScore(sentence, r.transcript).score : null } };
+      return { ...all, [idx]: { ...r, score } };
     });
   };
 

@@ -1,4 +1,4 @@
-import { HashRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import Layout from './components/Layout';
 import { useStore } from './lib/store';
 import Today from './pages/Today';
@@ -14,7 +14,7 @@ export default function App() {
   const { state } = useStore();
   if (!state.settings.onboarded) return <Welcome />;
   return (
-    <HashRouter>
+    <BrowserRouter>
       <Routes>
         <Route element={<Layout />}>
           <Route index element={<Today />} />
@@ -27,6 +27,6 @@ export default function App() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>
-    </HashRouter>
+    </BrowserRouter>
   );
 }

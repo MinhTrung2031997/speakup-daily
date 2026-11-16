@@ -1,6 +1,6 @@
 import { NavLink, Outlet } from 'react-router-dom';
 import { useStore } from '../lib/store';
-import { isDemoKey } from '../lib/gemini';
+import ImportBanner from './ImportBanner';
 import { isDue } from '../lib/srs';
 import Icon from './Icon';
 
@@ -16,14 +16,14 @@ export default function Layout() {
   const { state, update, saveError } = useStore();
   const due = state.phrases.filter((p) => isDue(p)).length;
   const toggleDark = () => update((s) => ({ ...s, settings: { ...s.settings, dark: !s.settings.dark } }));
-  const demo = state.settings.apiKey && isDemoKey(state.settings.apiKey);
+  const demo = state.settings.demo;
 
   return (
     <div className="min-h-screen pb-24 md:pb-10">
       <header className="sticky top-0 z-30 border-b border-slate-200/80 bg-white/85 backdrop-blur dark:border-slate-800 dark:bg-slate-950/85">
         <div className="mx-auto flex h-14 max-w-4xl items-center gap-3 px-4">
           <NavLink to="/" className="flex items-center gap-2 font-bold text-slate-900 dark:text-white">
-            <img src="./favicon.svg" alt="" className="h-7 w-7" />
+            <img src="/favicon.svg" alt="" className="h-7 w-7" />
             <span>SpeakUp <span className="text-blue-600 dark:text-blue-400">Daily</span></span>
           </NavLink>
           {demo && <span className="chip bg-amber-100 text-amber-800 dark:bg-amber-400/20 dark:text-amber-200">Demo mode</span>}
@@ -52,6 +52,7 @@ export default function Layout() {
       {saveError && <div className="bg-rose-600 px-4 py-2 text-center text-sm text-white">{saveError}</div>}
 
       <main className="mx-auto max-w-4xl px-4 py-5">
+        <ImportBanner />
         <Outlet />
       </main>
 

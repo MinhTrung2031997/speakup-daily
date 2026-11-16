@@ -9,7 +9,7 @@ import { markPhrases } from '../lib/diff';
 import type { ChatMessage, ChatSession } from '../lib/types';
 import MicInput from '../components/MicInput';
 import ShadowPractice from '../components/ShadowPractice';
-import { ErrorBox, NoKeyBanner, PageTitle, Spinner } from '../components/ui';
+import { ErrorBox, PageTitle, Spinner } from '../components/ui';
 import Icon from '../components/Icon';
 
 export default function Chat() {
@@ -110,7 +110,6 @@ export default function Chat() {
           ) : undefined
         }
       />
-      {!ai.hasKey && <NoKeyBanner />}
 
       {phrases.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5">
