@@ -1,0 +1,32 @@
+import { HashRouter, Navigate, Route, Routes } from 'react-router-dom';
+import Layout from './components/Layout';
+import { useStore } from './lib/store';
+import Today from './pages/Today';
+import Chat from './pages/Chat';
+import Phrases from './pages/Phrases';
+import History from './pages/History';
+import Progress from './pages/Progress';
+import Profile from './pages/Profile';
+import Settings from './pages/Settings';
+import Welcome from './pages/Welcome';
+
+export default function App() {
+  const { state } = useStore();
+  if (!state.settings.onboarded) return <Welcome />;
+  return (
+    <HashRouter>
+      <Routes>
+        <Route element={<Layout />}>
+          <Route index element={<Today />} />
+          <Route path="chat" element={<Chat />} />
+          <Route path="phrases" element={<Phrases />} />
+          <Route path="history" element={<History />} />
+          <Route path="progress" element={<Progress />} />
+          <Route path="profile" element={<Profile />} />
+          <Route path="settings" element={<Settings />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Route>
+      </Routes>
+    </HashRouter>
+  );
+}
