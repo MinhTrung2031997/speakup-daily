@@ -72,7 +72,7 @@ export async function callAI(cfg: GeminiConfig, system: string, turns: GeminiTur
   };
   let res: Response;
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 90000);
+  const timer = setTimeout(() => ctrl.abort(), 140000);
   try {
     res = await fetch(`${SUPABASE_URL}/functions/v1/ai`, {
       method: 'POST',

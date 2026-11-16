@@ -11,7 +11,11 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
 const DEFAULT_MODEL = 'gemini-flash-lite-latest';
-const FALLBACKS = ['gemini-flash-lite-latest', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-flash-latest'];
+// Same fallback order as the old browser client (src/lib/gemini.ts). Full Flash and 2.5 models are
+// left out on purpose: on new keys 2.5 is "no longer available" and full Flash can hang for 60s+.
+const FALLBACKS = ['gemini-flash-lite-latest', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'];
+const ATTEMPT_TIMEOUT_MS = 25000; // per Gemini call; on timeout switch to the next model
+const TOTAL_BUDGET_MS = 120000; // stay well inside the Edge Function wall-clock limit
 const MAX_BODY_BYTES = 12 * 1024 * 1024; // room for ~8 MB of base64 audio
 const MAX_TURNS = 80;
 const GEMINI = 'https://generativelanguage.googleapis.com/v1beta';
@@ -62,6 +66,7 @@ async function listModels(key: string): Promise<string | null> {
       if (/flash-latest$/.test(n)) sc += 1000;
       if (/flash/.test(n)) sc += 500;
       if (/lite/.test(n)) sc += 300;
+      if (/^gemini-2\./.test(n)) sc -= 1000;
       if (/(preview|exp)/.test(n)) sc -= 50;
       const v = n.match(/gemini-(\d+(?:\.\d+)?)/);
       if (v) sc += parseFloat(v[1]) * 10;
@@ -125,7 +130,10 @@ Deno.serve(async (req) => {
   };
 
   let last = { status: 502, kind: 'server', message: 'Google AI is busy right now. Please try again in a moment.' };
+  const started = Date.now();
   for (let attempt = 0; attempt < 6; attempt++) {
+    const left = TOTAL_BUDGET_MS - (Date.now() - started);
+    if (left < 3000) break;
     const generationConfig: Record<string, unknown> = { temperature };
     if (wantJson) generationConfig.responseMimeType = 'application/json';
     if (fastMode && /^gemini-2\.5-flash/.test(model)) generationConfig.thinkingConfig = { thinkingBudget: 0 };
@@ -138,23 +146,29 @@ Deno.serve(async (req) => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
         body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(30000),
+        signal: AbortSignal.timeout(Math.min(ATTEMPT_TIMEOUT_MS, left)),
       });
     } catch (e) {
-      if ((e as Error)?.name === 'TimeoutError' && (await switchModel())) continue;
-      last = { status: 504, kind: 'server', message: 'Google AI took too long to answer. Please try again.' };
+      const timedOut = (e as Error)?.name === 'TimeoutError' || (e as Error)?.name === 'AbortError';
+      if (timedOut) {
+        console.warn(`Gemini model ${model} timed out after ${ATTEMPT_TIMEOUT_MS / 1000}s; switching model`);
+        last = { status: 504, kind: 'server', message: 'Google AI took too long to answer. Please try again.' };
+        if (await switchModel()) continue;
+        break;
+      }
+      last = { status: 502, kind: 'server', message: 'Could not reach Google AI. Please try again.' };
       continue;
     }
     const data = await res.json().catch(() => null);
     if (!res.ok) {
       const msg: string = data?.error?.message || res.statusText || 'Unknown error';
+      if (res.status === 404 || /no longer available|not available to new users/i.test(msg) || ((res.status === 400 || res.status === 403) && /model/i.test(msg) && /(not found|not supported|unsupported)/i.test(msg))) {
+        if (await switchModel()) continue;
+        return fail(400, 'other', `Model "${model}" isn't available. Pick another model in Settings.`);
+      }
       if ((res.status === 400 && /api key/i.test(msg)) || res.status === 401 || res.status === 403) {
         console.error('Gemini auth error', res.status, msg);
         return fail(502, 'nokey', 'AI key not set up yet (the server key was rejected by Google). Ask the app owner to check GEMINI_API_KEY.');
-      }
-      if (res.status === 404 || (res.status === 400 && /model/i.test(msg) && /(not found|not supported|unsupported)/i.test(msg))) {
-        if (await switchModel()) continue;
-        return fail(400, 'other', `Model "${model}" isn't available. Pick another model in Settings.`);
       }
       if (res.status === 429) return fail(429, 'quota', 'The free AI limit was reached. Wait a minute and try again.');
       if (res.status >= 500) {
