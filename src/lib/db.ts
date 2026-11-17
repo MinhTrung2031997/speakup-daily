@@ -113,6 +113,16 @@ function fluencyRow(userId: string, answerId: string, kind: 'answer' | 'retry', 
   };
 }
 
+/** daily_questions.suggested: {versions: [...]} (new) or a single suggestion object (Nov 17 build). */
+export function suggestionsFrom(raw: unknown, qid: string): SuggestedAnswer[] {
+  if (!raw || typeof raw !== 'object') return [];
+  const o = raw as { versions?: unknown; answer?: unknown };
+  const list = Array.isArray(o.versions) ? o.versions : o.answer ? [o] : [];
+  return (list as SuggestedAnswer[])
+    .filter((v) => v && typeof v.answer === 'string' && Array.isArray(v.parts))
+    .map((v, i) => ({ ...v, id: v.id || `${qid}-v${i + 1}`, phrases: Array.isArray(v.phrases) ? v.phrases : [], ideas: v.ideas || {} }));
+}
+
 function questionRow(userId: string, q: DailyQuestion, clientId?: string) {
   return {
     id: q.id,
@@ -123,7 +133,8 @@ function questionRow(userId: string, q: DailyQuestion, clientId?: string) {
     question: q.question || '(no question)',
     starters: q.starters || [],
     question_date: date(q.date),
-    suggested: q.suggested ? j(q.suggested) : null,
+    // Backward compatible: the latest version's fields stay at the top level (older app builds read those).
+    suggested: q.suggestions?.length ? j({ ...q.suggestions[q.suggestions.length - 1], versions: q.suggestions }) : null,
     created_at: ts(q.createdAt),
   };
 }
@@ -335,7 +346,7 @@ export async function loadState(userId: string): Promise<AppState> {
     },
     questions: questions.map((q) => ({
       id: q.id, date: q.question_date, topicId: (q.topic_id && topicSlugs.get(q.topic_id)) || '', topicName: q.topic_name,
-      question: q.question, starters: q.starters || [], ...(q.suggested ? { suggested: q.suggested as unknown as SuggestedAnswer } : {}), createdAt: ms(q.created_at),
+      question: q.question, starters: q.starters || [], ...(suggestionsFrom(q.suggested, q.id).length ? { suggestions: suggestionsFrom(q.suggested, q.id) } : {}), createdAt: ms(q.created_at),
     })),
     entries: answers.map((a) => {
       const retryFlu = flu.get(`${a.id}:retry`);

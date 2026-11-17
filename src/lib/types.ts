@@ -34,8 +34,8 @@ export interface DailyQuestion {
   topicName: string;
   question: string;
   starters: string[];
-  /** Cached suggested answer ("💡 Show a suggested answer"). */
-  suggested?: SuggestedAnswer;
+  /** Suggested answer versions, oldest first, max 5 (daily_questions.suggested = {...latest, versions}). */
+  suggestions?: SuggestedAnswer[];
   createdAt: number;
 }
 
@@ -106,7 +106,7 @@ export interface Entry {
 
 export type QuestionType = 'Opinion' | 'Experience' | 'Compare' | 'Describe' | 'Hypothetical' | 'Small talk';
 export type BuilderLevel = 'Simple' | 'Natural' | 'Fluent';
-export type BuilderLength = 20 | 45 | 90;
+export type BuilderLength = 20 | 45 | 90 | 120;
 
 export interface BuilderPart {
   slot: string;
@@ -129,6 +129,10 @@ export interface BuilderInfo {
 
 /** A suggested model answer for a daily question (daily_questions.suggested jsonb, cached). */
 export interface SuggestedAnswer {
+  /** Version id (older single suggestions get one on load). */
+  id: string;
+  /** Stance asked for ("➕ Another angle" rotates agree / disagree / it depends). */
+  stance?: string;
   qtype: QuestionType;
   slots: string[];
   /** slot -> idea used */

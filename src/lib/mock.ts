@@ -96,11 +96,30 @@ export function mockResponse(task: string, turns: GeminiTurn[]): unknown {
     }
     case 'builder-answer': {
       const slots: string[] = JSON.parse(last.match(/Answer parts in order: (\[.*\])/)?.[1] || '[]');
-      const sentences = BUILDER_ANSWER.parts;
-      const parts = slots.map((slot, i) => ({ slot, text: i === slots.length - 1 ? sentences.slice(i).join(' ') : sentences[i] || '' })).filter((p) => p.text);
-      const ideaLabels = ['It really depends', 'Saves time on boring work', 'Writing tests at work', 'Use it, but check it', 'A bit more'];
-      const ideas = /"ideas":/.test(last) ? Object.fromEntries(slots.map((s, i) => [s, ideaLabels[i % ideaLabels.length]])) : undefined;
-      return { answer: sentences.join(' '), parts, phrases: BUILDER_ANSWER.phrases, ...(ideas ? { ideas } : {}) };
+      // "➕ Another angle": a different stance and different phrases; longer answers fill the extra parts.
+      const stance = last.match(/Stance for this version: (agree|disagree|it depends)/)?.[1] || '';
+      const alt = /Write a NEW version/.test(last) ? BUILDER_ALT[stance] || BUILDER_ALT.disagree : null;
+      const base = alt || BUILDER_ANSWER;
+      const extraText: Record<string, string> = {
+        'Reason 2': "On top of that, it's kind of a learning tool, since you can ask it why something works.",
+        'Example 2': 'Last month I picked up a new library way faster just by asking it questions.',
+        'Personal touch': "For me personally, it's taken a lot of stress off my plate.",
+        'On the other hand': "On the other hand, I get why some people worry that juniors won't learn the basics.",
+        'Second point': "Another thing is that it's just more fun to work this way.",
+        'Short example': 'Like, I fixed a weird bug in ten minutes instead of an hour.',
+      };
+      const main = base.parts;
+      let k = 0;
+      const parts = slots.map((slot, i) => {
+        if (extraText[slot]) return { slot, text: extraText[slot] };
+        const isLast = i === slots.length - 1;
+        const text = isLast ? main.slice(k).join(' ') : main[k] || '';
+        k++;
+        return { slot, text };
+      }).filter((p) => p.text).map((p, i) => (/Length matters/.test(last) ? { ...p, text: `${p.text} ${LONG_FILL[i % LONG_FILL.length]}` } : p));
+      const ideaLabels = alt ? ['I mostly disagree', 'You stop thinking', 'Copy-paste bugs', 'Learn the basics first', 'A bit more'] : ['It really depends', 'Saves time on boring work', 'Writing tests at work', 'Use it, but check it', 'A bit more'];
+      const ideas = /"ideas":/.test(last) ? Object.fromEntries(slots.map((s, i) => [s, extraText[s] ? s.toLowerCase() : ideaLabels[i % ideaLabels.length]])) : undefined;
+      return { answer: parts.map((p) => p.text).join(' '), parts, phrases: base.phrases, ...(ideas ? { ideas } : {}) };
     }
     case 'listen-drill':
       return LISTEN_DRILL;
@@ -286,3 +305,61 @@ function mockPronunciation(prompt: string): unknown {
     wellDone: 'Your vowels are clear and your sentences sound confident.',
   };
 }
+
+/** Demo "➕ Another angle" versions (different stance, different phrases). */
+const BUILDER_ALT: Record<string, { parts: string[]; phrases: { phrase: string; meaning: string; example: string }[] }> = {
+  disagree: {
+    parts: [
+      "To be honest, I'm not so sure they make us better.",
+      'A lot of people just stop thinking and take whatever it spits out.',
+      "I've seen code that was copy-pasted straight from AI and nobody really got how it worked.",
+      'So yeah, I think you gotta learn the basics first, then let the tool help.',
+    ],
+    phrases: [
+      { phrase: "I'm not so sure", meaning: 'a soft way to disagree', example: "I'm not so sure that's a good idea." },
+      { phrase: 'spits out', meaning: 'produces quickly, without care', example: 'The printer spits out ten pages a minute.' },
+      { phrase: 'nobody really got', meaning: 'nobody understood', example: 'Nobody really got the joke.' },
+      { phrase: 'you gotta', meaning: 'you have to (casual)', example: 'You gotta try this coffee.' },
+    ],
+  },
+  'it depends': {
+    parts: [
+      'Honestly, it kind of depends on how you use it.',
+      "If you treat it like a teammate, it's super helpful, but if you let it do everything, you get rusty.",
+      'Like, when I review its code line by line, I actually learn new tricks.',
+      "So I'd say it's a double-edged sword, and it's on us to use it well.",
+    ],
+    phrases: [
+      { phrase: 'it kind of depends', meaning: 'the answer is not simple', example: 'It kind of depends on the weather.' },
+      { phrase: 'get rusty', meaning: 'become worse at a skill from not using it', example: 'My French got rusty.' },
+      { phrase: 'a double-edged sword', meaning: 'something with good and bad sides', example: 'Remote work is a double-edged sword.' },
+      { phrase: "it's on us", meaning: "it's our responsibility", example: "It's on us to finish this today." },
+    ],
+  },
+  agree: {
+    parts: [
+      "Yeah, I'm all for it, to be honest.",
+      'It frees up so much headspace for the stuff that matters.',
+      'The other day it wrote all my boilerplate while I focused on the tricky logic.',
+      "So for me it's a no-brainer: use it, just keep your eyes open.",
+    ],
+    phrases: [
+      { phrase: "I'm all for it", meaning: 'I fully support it', example: "A four-day week? I'm all for it." },
+      { phrase: 'frees up', meaning: 'gives you more of something', example: 'Cooking on Sunday frees up my week.' },
+      { phrase: 'a no-brainer', meaning: 'an easy decision', example: "Taking the job was a no-brainer." },
+      { phrase: 'keep your eyes open', meaning: 'stay careful and alert', example: 'Keep your eyes open for typos.' },
+    ],
+  },
+};
+
+/** Demo: extra sentences so "Extended" answers reach ~250 words. */
+const LONG_FILL = [
+  "And I don't think that's going to change any time soon.",
+  'That alone saves me a good hour or two every single week.',
+  "It's not perfect, but it's way better than doing it all by hand.",
+  'Even my teammates noticed I was shipping things a lot faster.',
+  'I try to read every line it writes, just to stay sharp myself.',
+  'It honestly made my workdays feel a lot less stressful than before.',
+  "And to be fair, that's a pretty reasonable worry to have.",
+  "That's pretty much how I see it right now, anyway.",
+];

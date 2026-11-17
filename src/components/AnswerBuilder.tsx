@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../lib/store';
 import { useAIConfig } from '../lib/hooks';
-import { builderAnswer, builderIdeas, builderQuestion, DEFAULT_SLOTS, QUESTION_TYPES, scoreRetry, type IdeaRow, type IdeaSource } from '../lib/ai';
+import { builderAnswer, builderIdeas, builderQuestion, DEFAULT_SLOTS, QUESTION_TYPES, LENGTH_LABEL, scoreRetry, type IdeaRow, type IdeaSource } from '../lib/ai';
 import { loadBuilderPrefs, saveBuilderPrefs } from '../lib/builderPrefs';
 import { errorText } from '../lib/gemini';
 import { todayStr, uid } from '../lib/date';
@@ -23,7 +23,7 @@ const LEVELS: { id: BuilderLevel; hint: string }[] = [
   { id: 'Natural', hint: 'B2, a few idioms' },
   { id: 'Fluent', hint: 'C1, varied linking' },
 ];
-const LENGTHS: BuilderLength[] = [20, 45, 90];
+const LENGTHS: BuilderLength[] = [20, 45, 90, 120];
 
 const pill = (on: boolean) =>
   `rounded-full border px-3 py-1.5 text-sm transition ${on
@@ -198,9 +198,9 @@ export default function AnswerBuilder() {
     try {
       const chosen = source === 'picked' ? Object.fromEntries(c.slots.map((s) => [s, picks[s].trim()])) : {};
       const r = await builderAnswer(ai, state.profile, c.qtype, c.question, c.slots, chosen, level, seconds, source);
-      const slots = c.slots, question = c.question, askedTopic = c.topic;
+      const slots = r.slots, question = c.question, askedTopic = c.topic;
       const parts = r.parts.length ? r.parts : [{ slot: slots[0], text: r.answer }];
-      const builder: BuilderInfo = { qtype: c.qtype, slots, picks: source === 'picked' ? chosen : r.ideas, level, seconds, parts, source };
+      const builder: BuilderInfo = { qtype: c.qtype, slots, picks: source === 'picked' ? { ...r.ideas, ...chosen } : r.ideas, level, seconds, parts, source };
       const txt = (i: number) => parts[i]?.text || '';
       const e: Entry = {
         // Re-building before trying reuses the same History entry (same question only).
@@ -371,7 +371,7 @@ export default function AnswerBuilder() {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm text-slate-600 dark:text-slate-300">⏱️ Length</span>
-            {LENGTHS.map((s) => <button key={s} className={pill(seconds === s)} onClick={() => setSeconds(s)}>{s}s</button>)}
+            {LENGTHS.map((s) => <button key={s} className={pill(seconds === s)} onClick={() => setSeconds(s)}>{LENGTH_LABEL[s]}</button>)}
           </div>
           {picking ? (
             <div className="flex flex-wrap items-center gap-2">

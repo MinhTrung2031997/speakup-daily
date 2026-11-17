@@ -138,7 +138,39 @@ export const DEFAULT_SLOTS: Record<QuestionType, string[]> = {
   'Small talk': ['Quick answer', 'A bit more', 'Question back'],
 };
 
-export const LENGTH_WORDS: Record<BuilderLength, number> = { 20: 50, 45: 110, 90: 220 };
+// ~130 wpm; 120s = "Extended" (about 250-300 words).
+export const LENGTH_WORDS: Record<BuilderLength, number> = { 20: 50, 45: 110, 90: 220, 120: 270 };
+export const LENGTH_LABEL: Record<BuilderLength, string> = { 20: '20s', 45: '45s', 90: '90s', 120: 'Extended' };
+export const lengthText = (s: BuilderLength) => (s === 120 ? 'Extended (2 min)' : `~${s}s`);
+
+/**
+ * Longer answers get more parts (EL/ES, Nov 17): 90s+ = 2 reasons + 2 short examples + a personal touch
+ * before the wrap-up; Extended (120s) also adds a short counterpoint ("On the other hand…").
+ */
+export function expandSlots(slots: string[], seconds: BuilderLength): string[] {
+  if (seconds < 90 || slots.length < 2) return slots;
+  const body = slots.slice(0, -1);
+  const last = slots[slots.length - 1];
+  const out: string[] = [];
+  const hasReason = body.includes('Reason');
+  const hasExample = body.includes('Example');
+  for (const s of body) {
+    out.push(s);
+    if (s === 'Example') out.push('Reason 2', 'Example 2');
+    if (s === 'Reason' && !hasExample) out.push('Example', 'Reason 2', 'Example 2');
+  }
+  if (!hasReason && !hasExample) out.push('Second point', 'Short example');
+  out.push('Personal touch');
+  if (seconds >= 120) out.push('On the other hand');
+  out.push(last);
+  return out;
+}
+
+/** "➕ Another angle": rotate the stance between versions. */
+const STANCES = ['disagree', 'it depends', 'agree'] as const;
+export function nextStance(used: (string | undefined)[]): string {
+  return STANCES.find((s) => !used.includes(s)) || STANCES[used.length % STANCES.length];
+}
 const LEVEL_TEXT: Record<BuilderLevel, string> = { Simple: 'Simple (B1)', Natural: 'Natural (B2)', Fluent: 'Fluent (C1)' };
 
 export interface BuilderQuestion {
@@ -207,6 +239,8 @@ export interface BuilderAnswer {
   phrases: PhraseItem[];
   /** slot -> the idea actually used (the learner's picks, or what the AI chose). */
   ideas: Record<string, string>;
+  /** The answer parts used (longer answers add parts, see expandSlots). */
+  slots: string[];
 }
 
 /** Where the ideas come from: the learner's picks, the AI (auto-pick), or the daily question's idea starters. */
@@ -234,7 +268,22 @@ export async function builderAnswer(
   level: BuilderLevel,
   seconds: BuilderLength,
   source: IdeaSource = 'picked',
+  more: { earlier?: string[]; stance?: string } = {},
 ): Promise<BuilderAnswer> {
+  // Longer answers: extra parts on top of the learner's / default parts.
+  const baseSlots = slots;
+  slots = expandSlots(slots, seconds);
+  const extra = slots.filter((s) => !baseSlots.includes(s));
+  const wantIdeas = source !== 'picked' || extra.length > 0;
+  const lengthLines = [
+    seconds >= 90 ? 'Give 2 reasons and 2 short examples, and add a short personal touch before the wrap-up.' : '',
+    seconds >= 120 ? 'Also include a short counterpoint ("On the other hand…") before the wrap-up. Do not pad: every part adds a new idea.' : '',
+    source === 'picked' && extra.length ? `For the extra parts (${extra.join(', ')}), add a closely related idea of your own that fits the picked ones.` : '',
+  ].filter(Boolean).join('\n');
+  const earlier = (more.earlier || []).filter((t) => t.trim());
+  const versionLines = earlier.length
+    ? `Write a NEW version with a different angle or stance and different phrases from these: ${earlier.map((t, i) => `\nVersion ${i + 1}: "${t.slice(0, 900)}"`).join('')}\n${more.stance ? `Stance for this version: ${more.stance} (if the question has no stance, take a clearly different angle). ` : ''}Do not reuse the phrases or examples above.`
+    : more.stance ? `Stance for this version: ${more.stance}.` : '';
   // Ideas line by source (EL's notes, Nov 17): picked ideas, idea starters, or the AI chooses (saves the ideas call).
   const ideasLine =
     source === 'auto'
@@ -248,15 +297,31 @@ ${profileText(profile)}
 Question (${qtype}): ${question}
 Answer parts in order: ${JSON.stringify(slots)}
 ${ideasLine}
-Level: ${LEVEL_TEXT[level]}. Target length: about ${seconds} seconds of speech (~${LENGTH_WORDS[seconds]} words).
+Level: ${LEVEL_TEXT[level]}. Target length: about ${seconds} seconds of speech (~${LENGTH_WORDS[seconds]} words, about 130 words per minute).${seconds >= 90 ? ` Length matters: write ${LENGTH_WORDS[seconds]} words in total (at least ${Math.round(LENGTH_WORDS[seconds] * 0.85)}), about ${Math.round(LENGTH_WORDS[seconds] / slots.length)} words (2-3 sentences) for each part.` : ''}${lengthLines ? `\n${lengthLines}` : ''}${versionLines ? `\n${versionLines}` : ''}
 
 Write a natural SPOKEN answer, like a real person on Discord (contractions, friendly), built ONLY from ${source === 'picked' ? 'the picked ideas' : 'these ideas'}, in the order of the answer parts. Do not add new opinions, events, dates or numbers; you may add small natural connecting words and a general example.
 Level guide: Simple = short sentences, B1 words; Natural = B2, a few idioms; Fluent = C1, varied linking and idioms.
 Then:
-- "parts": the answer split into the answer parts (exact sentences from "answer").
-- "phrases": 3-5 natural spoken chunks that appear WORD-FOR-WORD in "answer". Skip basic linkers (for example, because, and, so, but). Each with a short simple meaning and a new short example.${source === 'picked' ? '' : '\n- "ideas": for each answer part, the idea you used, as a short label (3-8 plain words).'}
-JSON shape: {"answer": string, "parts": [{"slot": string, "text": string}], "phrases": [{"phrase": string, "meaning": string, "example": string}]${source === 'picked' ? '' : ', "ideas": {"<part>": string}'}}`;
-  const r = await generateJSON<Record<string, unknown>>(cfg, 'builder-answer', TONE, [{ role: 'user', text: prompt }], 0.7);
+- "parts": the answer split into the answer parts (exact sentences from "answer"): one entry for EACH answer part, in this exact order, every part with text.
+- "phrases": 3-5 natural spoken chunks that appear WORD-FOR-WORD in "answer". Skip basic linkers (for example, because, and, so, but). Each with a short simple meaning and a new short example.${wantIdeas ? '\n- "ideas": for each answer part, the idea you used, as a short label (3-8 plain words).' : ''}
+JSON shape: {"answer": string, "parts": [{"slot": string, "text": string}], "phrases": [{"phrase": string, "meaning": string, "example": string}]${wantIdeas ? ', "ideas": {"<part>": string}' : ''}}`;
+  let r = await generateJSON<Record<string, unknown>>(cfg, 'builder-answer', TONE, [{ role: 'user', text: prompt }], 0.7);
+  // Long answers: the model tends to stop early. One follow-up if it is far too short or skipped parts.
+  if (seconds >= 90) {
+    const n = str(r.answer).split(/\s+/).filter(Boolean).length;
+    const got = new Set(arr<Record<string, unknown>>(r.parts).map((p) => str(p?.slot).toLowerCase()));
+    const missing = slots.filter((s) => !got.has(s.toLowerCase()));
+    if (n && (n < LENGTH_WORDS[seconds] * 0.75 || missing.length)) {
+      try {
+        const fix = await generateJSON<Record<string, unknown>>(cfg, 'builder-answer', TONE, [
+          { role: 'user', text: prompt },
+          { role: 'model', text: JSON.stringify(r) },
+          { role: 'user', text: `Too short: ${n} words${missing.length ? ` and these parts are missing: ${missing.join(', ')}` : ''}. Rewrite it to about ${LENGTH_WORDS[seconds]} words (at least ${Math.round(LENGTH_WORDS[seconds] * 0.85)}), with every answer part in order (${slots.join(', ')}), 2-3 sentences each. Same rules, same JSON shape.` },
+        ], 0.7);
+        if (str(fix.answer).split(/\s+/).length > n) r = fix;
+      } catch { /* keep the first answer */ }
+    }
+  }
   const answer = str(r.answer);
   if (!answer) throw new Error('The AI did not return a model answer. Please try again.');
   const parts = arr<Record<string, unknown>>(r.parts).map((p) => ({ slot: str(p?.slot), text: str(p?.text) })).filter((p) => p.text);
@@ -266,8 +331,8 @@ JSON shape: {"answer": string, "parts": [{"slot": string, "text": string}], "phr
   const exact = all.filter((p) => low.includes(p.phrase.toLowerCase().replace(/[.,!?…"']+$/, '')));
   const rawIdeas = r.ideas && typeof r.ideas === 'object' && !Array.isArray(r.ideas) ? (r.ideas as Record<string, unknown>) : {};
   const ideaFor = (slot: string) => str(rawIdeas[slot]) || str(Object.entries(rawIdeas).find(([k]) => k.toLowerCase() === slot.toLowerCase())?.[1]);
-  const ideas = Object.fromEntries(slots.map((s) => [s, source === 'picked' ? picks[s] || '' : ideaFor(s)]).filter(([, v]) => v));
-  return { answer, parts, phrases: (exact.length ? exact : all).slice(0, 5), ideas };
+  const ideas = Object.fromEntries(slots.map((s) => [s, (source === 'picked' && picks[s]) || ideaFor(s)]).filter(([, v]) => v));
+  return { answer, parts, phrases: (exact.length ? exact : all).slice(0, 5), ideas, slots };
 }
 
 // ---------- Listen tab (prompts by EL, tested Nov 16, 2026) ----------

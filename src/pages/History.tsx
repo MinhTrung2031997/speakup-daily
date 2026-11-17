@@ -1,7 +1,9 @@
 import { useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import SuggestedAnswer, { reusedPhrases } from '../components/SuggestedAnswer';
 import { useStore } from '../lib/store';
 import { prettyDate } from '../lib/date';
-import type { Entry } from '../lib/types';
+import type { DailyQuestion, Entry } from '../lib/types';
 import UpgradeResult from '../components/UpgradeResult';
 import BuilderResult from '../components/BuilderResult';
 import { ShadowCard } from '../components/ShadowPractice';
@@ -14,7 +16,12 @@ import Icon from '../components/Icon';
 
 export default function History() {
   const { state } = useStore();
-  const [tab, setTab] = useState<'answers' | 'chats' | 'listening'>('answers');
+  const [params, setParams] = useSearchParams();
+  const urlTab = params.get('tab');
+  const [tab, setTabState] = useState<'daily' | 'answers' | 'chats' | 'listening'>(urlTab === 'daily' || urlTab === 'chats' || urlTab === 'listening' ? urlTab : 'answers');
+  const setTab = (t: typeof tab) => { setTabState(t); setParams(t === 'answers' ? {} : { tab: t }, { replace: true }); };
+  const [dailyFilter, setDailyFilter] = useState<'all' | 'answered' | 'suggested'>('all');
+  const [dailyShown, setDailyShown] = useState(10);
   const [query, setQuery] = useState('');
   const [topic, setTopic] = useState('');
   const [date, setDate] = useState('');
@@ -43,15 +50,28 @@ export default function History() {
       .filter((l) => (!topic || l.topic === topic) && (!date || l.date === date) && (!q || [l.drill.title, ...l.drill.lines.map((x) => x.text)].some((t) => t.toLowerCase().includes(q))));
   }, [state.listens, query, topic, date]);
 
+  // Daily questions with a suggested answer and/or his own answer, newest first. Answers link by
+  // question id (answers.question_id); old rows without one fall back to the same question text.
+  const daily = useMemo(() => {
+    const q = query.toLowerCase();
+    return [...state.questions]
+      .sort((a, b) => (b.date === a.date ? b.createdAt - a.createdAt : b.date.localeCompare(a.date)))
+      .map((dq) => ({ q: dq, answers: state.entries.filter((e) => !e.builder && (e.questionId === dq.id || (!e.questionId && e.question === dq.question))).sort((a, b) => a.createdAt - b.createdAt) }))
+      .filter(({ q: dq, answers }) => answers.length > 0 || (dq.suggestions?.length || 0) > 0)
+      .filter(({ answers }) => dailyFilter === 'all' || (dailyFilter === 'answered' ? answers.length > 0 : answers.length === 0))
+      .filter(({ q: dq, answers }) => (!topic || dq.topicName === topic) && (!date || dq.date === date) && (!q || [dq.question, ...answers.map((e) => e.answer), ...(dq.suggestions || []).map((v) => v.answer)].some((t) => t.toLowerCase().includes(q))));
+  }, [state.questions, state.entries, query, topic, date, dailyFilter]);
+
   const unanswered = state.questions.filter((qq) => !state.entries.some((e) => e.questionId === qq.id)).length;
 
   return (
     <div className="space-y-4">
       <PageTitle title="History" subtitle={`${state.entries.length} answers · ${state.chats.length} chats · ${state.listens.length} listening${unanswered ? ` · ${unanswered} skipped questions` : ''}`} />
-      <div className="inline-flex rounded-xl bg-slate-100 p-1 dark:bg-slate-800">
-        <button onClick={() => setTab('answers')} className={`rounded-lg px-4 py-1.5 text-sm font-medium ${tab === 'answers' ? 'bg-white shadow-sm dark:bg-slate-950' : 'text-slate-500'}`}>Answers</button>
-        <button onClick={() => setTab('chats')} className={`rounded-lg px-4 py-1.5 text-sm font-medium ${tab === 'chats' ? 'bg-white shadow-sm dark:bg-slate-950' : 'text-slate-500'}`}>Chats</button>
-        <button onClick={() => setTab('listening')} className={`rounded-lg px-4 py-1.5 text-sm font-medium ${tab === 'listening' ? 'bg-white shadow-sm dark:bg-slate-950' : 'text-slate-500'}`}>Listening</button>
+      <div className="inline-flex max-w-full overflow-x-auto rounded-xl bg-slate-100 p-1 dark:bg-slate-800">
+        <button onClick={() => setTab('daily')} className={`rounded-lg px-3 py-1.5 text-sm font-medium ${tab === 'daily' ? 'bg-white shadow-sm dark:bg-slate-950' : 'text-slate-500'}`}>Daily</button>
+        <button onClick={() => setTab('answers')} className={`rounded-lg px-3 py-1.5 text-sm font-medium ${tab === 'answers' ? 'bg-white shadow-sm dark:bg-slate-950' : 'text-slate-500'}`}>Answers</button>
+        <button onClick={() => setTab('chats')} className={`rounded-lg px-3 py-1.5 text-sm font-medium ${tab === 'chats' ? 'bg-white shadow-sm dark:bg-slate-950' : 'text-slate-500'}`}>Chats</button>
+        <button onClick={() => setTab('listening')} className={`rounded-lg px-3 py-1.5 text-sm font-medium ${tab === 'listening' ? 'bg-white shadow-sm dark:bg-slate-950' : 'text-slate-500'}`}>Listening</button>
       </div>
       <div className="grid gap-2 sm:grid-cols-[1fr_auto_auto]">
         <div className="relative">
@@ -65,7 +85,24 @@ export default function History() {
         <input type="date" className="input sm:!w-44" value={date} onChange={(e) => setDate(e.target.value)} aria-label="Filter by date" />
       </div>
 
-      {tab === 'listening' ? (
+      {tab === 'daily' ? (
+        <div className="space-y-2">
+          <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Daily filter">
+            {([['all', 'All'], ['answered', 'Answered'], ['suggested', 'Suggested only']] as const).map(([id, label]) => (
+              <button key={id} role="tab" aria-selected={dailyFilter === id} onClick={() => { setDailyFilter(id); setDailyShown(10); }}
+                className={`rounded-full border px-3 py-1 text-xs ${dailyFilter === id ? 'border-blue-600 bg-blue-600 text-white dark:border-blue-400 dark:bg-blue-500 dark:text-slate-950' : 'border-slate-300 text-slate-600 dark:border-slate-700 dark:text-slate-300'}`}>{label}</button>
+            ))}
+          </div>
+          {daily.length ? (
+            <>
+              {daily.slice(0, dailyShown).map(({ q: dq, answers }) => <DailyRow key={dq.id} q={dq} answers={answers} open={open === dq.id} onToggle={() => setOpen(open === dq.id ? null : dq.id)} />)}
+              {daily.length > dailyShown && <button className="btn-soft w-full justify-center" onClick={() => setDailyShown((n) => n + 10)}>Show more ({daily.length - dailyShown} left)</button>}
+            </>
+          ) : (
+            <Empty icon="📅" title={dailyFilter === 'all' && !query && !topic && !date ? 'No daily questions saved yet' : 'No daily questions match'} text="A daily question shows up here once you answer it or open a suggested answer." />
+          )}
+        </div>
+      ) : tab === 'listening' ? (
         listens.length ? (
           <div className="space-y-2">
             {listens.map((l) => (
@@ -120,7 +157,6 @@ export default function History() {
 }
 
 function EntryRow({ e, open, onToggle }: { e: Entry; open: boolean; onToggle: () => void }) {
-  const { addPhrases } = useStore();
   return (
     <div className="card !p-0">
       <button onClick={onToggle} className="w-full p-4 text-left">
@@ -138,6 +174,18 @@ function EntryRow({ e, open, onToggle }: { e: Entry; open: boolean; onToggle: ()
       </button>
       {open && (
         <div className="border-t border-slate-200 p-3 dark:border-slate-800 sm:p-4">
+          <EntryDetail e={e} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** One answer in full: fluency, pronunciation, upgrade / model answer, shadowing and the retry. */
+function EntryDetail({ e }: { e: Entry }) {
+  const { addPhrases } = useStore();
+  return (
+        <>
           {e.fluency && <div className="mb-4"><FluencyCard stats={e.fluency} title="📈 Fluency (your answer)" /></div>}
           {e.pronunciation && <div className="mb-4"><PronunciationCard clips={[]} transcript={e.answer} result={e.pronunciation} /></div>}
           {e.builder && e.upgrade ? <BuilderResult entry={e} onSave={(items) => addPhrases(items, e.question)} /> : e.upgrade ? <UpgradeResult entry={e} /> : <p className="muted">No upgrade for this answer.</p>}
@@ -148,6 +196,60 @@ function EntryRow({ e, open, onToggle }: { e: Entry; open: boolean; onToggle: ()
               <p className="mt-1 text-slate-600 dark:text-slate-300">“{e.retry.attempt}”</p>
               {e.retry.tip && <p className="mt-1">💡 {e.retry.tip}</p>}
               {e.retry.pronunciation && <div className="mt-2"><PronunciationCard clips={[]} transcript={e.retry.attempt} result={e.retry.pronunciation} title="🗣️ Pronunciation (your try)" /></div>}
+            </div>
+          )}
+        </>
+  );
+}
+
+const fluencyLine = (e: Entry) => [e.fluency ? `${e.fluency.wpm} wpm` : '', e.fluency ? `${e.fluency.fillers} fillers` : '', e.pronunciation ? `pron. ${e.pronunciation.score}` : '', e.retry ? `retry ${e.retry.score}` : ''].filter(Boolean).join(' · ');
+
+/** A daily question with his answer(s) and the suggested answer versions. */
+function DailyRow({ q, answers, open, onToggle }: { q: DailyQuestion; answers: Entry[]; open: boolean; onToggle: () => void }) {
+  const versions = q.suggestions || [];
+  const last = answers[answers.length - 1];
+  const reused = last ? reusedPhrases(versions, last.answer) : [];
+  return (
+    <div className="card !p-0" data-daily={q.id}>
+      <button onClick={onToggle} className="w-full p-4 text-left" aria-expanded={open}>
+        <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+          <span>{prettyDate(q.date)}</span>
+          <span className="flex flex-wrap items-center gap-1.5">
+            {answers.length > 0 && <span className="chip bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200">🎙️ {answers.length > 1 ? `${answers.length} answers` : 'Answered'}</span>}
+            {versions.length > 0 && <span className="chip bg-amber-100 text-amber-800 dark:bg-amber-400/15 dark:text-amber-200">💡 {versions.length} suggested</span>}
+            <span>{q.topicName}</span>
+          </span>
+        </div>
+        <p className="mt-1 font-medium text-slate-900 dark:text-white">{q.question}</p>
+        <p className="mt-1 line-clamp-2 text-sm text-slate-500 dark:text-slate-400">{last ? `You: ${last.answer}` : `Suggested: ${versions[versions.length - 1]?.answer || ''}`}</p>
+        {last && fluencyLine(last) && <p className="mt-1 text-xs text-slate-400">{fluencyLine(last)}</p>}
+      </button>
+      {open && (
+        <div className="space-y-4 border-t border-slate-200 p-3 dark:border-slate-800 sm:p-4">
+          <div>
+            <h3 className="mb-2 text-sm font-semibold">🎙️ Your answer{answers.length > 1 ? 's' : ''}</h3>
+            {answers.length ? answers.map((e, i) => (
+              <div key={e.id} className="mb-3 space-y-3">
+                <div className="rounded-xl bg-slate-50 p-3 text-sm dark:bg-slate-800/50">
+                  {answers.length > 1 && <p className="mb-1 text-xs font-semibold text-slate-500">Answer {i + 1}</p>}
+                  <p className="text-slate-700 dark:text-slate-200">“{e.answer}”</p>
+                  {fluencyLine(e) && <p className="mt-1 text-xs text-slate-500">{fluencyLine(e)}</p>}
+                  <p className="mt-1 text-[11px] text-slate-400">Audio of daily answers isn't stored; the transcript, fluency and pronunciation results are.</p>
+                </div>
+                <details className="text-sm">
+                  <summary className="cursor-pointer text-xs font-medium text-slate-500">Feedback, upgrade and retry</summary>
+                  <div className="mt-3"><EntryDetail e={e} /></div>
+                </details>
+              </div>
+            )) : <p className="muted text-sm">Not answered yet. Try it on Today.</p>}
+            {reused.length > 0 && (
+              <p className="text-xs text-slate-500">💡 Suggested phrases you used: {reused.filter((r) => r.used).map((r) => r.phrase).join(', ') || 'none yet'} ({reused.filter((r) => r.used).length}/{reused.length})</p>
+            )}
+          </div>
+          {versions.length > 0 && (
+            <div>
+              <h3 className="mb-2 text-sm font-semibold">💡 Suggested answer{versions.length > 1 ? `s (${versions.length} versions)` : ''}</h3>
+              <SuggestedAnswer q={q} autoStart={false} />
             </div>
           )}
         </div>

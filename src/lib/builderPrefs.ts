@@ -15,7 +15,7 @@ export function loadBuilderPrefs(): BuilderPrefs {
   try { p = JSON.parse(localStorage.getItem(KEY) || '{}') as Partial<BuilderPrefs>; } catch { /* ignore */ }
   return {
     level: p.level === 'Simple' || p.level === 'Fluent' ? p.level : 'Natural',
-    seconds: p.seconds === 20 || p.seconds === 90 ? p.seconds : 45,
+    seconds: p.seconds === 20 || p.seconds === 90 || p.seconds === 120 ? p.seconds : 45,
     auto: p.auto !== false,
   };
 }

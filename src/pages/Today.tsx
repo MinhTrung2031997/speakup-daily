@@ -85,7 +85,7 @@ export default function Today() {
   useEffect(() => { if (!answer.trim()) { setAnswerSamples([]); setAnswerClips([]); setAnswerPron(undefined); } }, [answer]);
   useEffect(() => { if (!attempt.trim()) { setAttemptSamples([]); setAttemptClips([]); setAttemptPron(undefined); } }, [attempt]);
 
-  const reused = useMemo(() => reusedPhrases(q?.suggested, answer), [q?.suggested, answer]);
+  const reused = useMemo(() => reusedPhrases(q?.suggestions, answer), [q?.suggestions, answer]);
   const sameAnswer = !!entry && entry.answer === answer.trim();
   // A fresh recording replaces the saved check (until it is checked itself).
   const shownAnswerPron = answerPron || (sameAnswer && !answerClips.length ? entry?.pronunciation : undefined);
@@ -233,10 +233,11 @@ export default function Today() {
                 </div>
               )}
               <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1">
-                <button className="btn-soft !py-1.5 text-sm" onClick={() => setShowSuggested((v) => !v)} disabled={!ai.hasKey && !q.suggested} aria-expanded={showSuggested}>
+                <button className="btn-soft !py-1.5 text-sm" onClick={() => setShowSuggested((v) => !v)} disabled={!ai.hasKey && !q.suggestions?.length} aria-expanded={showSuggested}>
                   💡 {showSuggested ? 'Hide the suggested answer' : 'Show a suggested answer'}
                 </button>
                 {!showSuggested && <span className="muted text-xs">Try it yourself first. Peek if you're stuck.</span>}
+                <Link to="/history?tab=daily" className="ml-auto text-xs font-medium text-blue-600 hover:underline dark:text-blue-400">🗂️ Past questions</Link>
               </div>
             </>
           ) : loadingQ ? (

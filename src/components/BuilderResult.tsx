@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import type { BuilderInfo, PhraseItem } from '../lib/types';
 import { cleanPhrase } from '../lib/diff';
+import { lengthText } from '../lib/ai';
 import { useStore } from '../lib/store';
 import ListenPlayer from './ListenPlayer';
 import Icon from './Icon';
@@ -55,7 +56,7 @@ export default function BuilderResult({ entry, hidden = false, onSave, step, tit
             {step && <span className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-600 text-xs font-bold text-white dark:bg-blue-500 dark:text-slate-950">{step}</span>}
             {title}
           </h2>
-          <span className="muted text-xs">{b.level} · ~{b.seconds}s · {b.qtype}</span>
+          <span className="muted text-xs">{b.level} · {lengthText(b.seconds)} · {b.qtype}</span>
         </div>
         {controls}
         {hidden ? (
