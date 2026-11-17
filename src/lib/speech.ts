@@ -260,3 +260,16 @@ export function speakWith(text: string, opts: { voice?: SpeechSynthesisVoice; ra
     window.speechSynthesis.speak(u);
   });
 }
+
+/** The accent chosen on the Listen tab (US or UK), used for pronunciation targets. Default US. */
+export function preferredAccent(): 'US' | 'UK' {
+  try { return (JSON.parse(localStorage.getItem('speakup.listen') || '{}') as { accent?: string }).accent === 'UK' ? 'UK' : 'US'; } catch { return 'US'; }
+}
+
+/** A voice for the accent: the user's chosen voice if it already matches, else the best voice for that accent. */
+export function accentVoice(accent: 'US' | 'UK', voiceURI: string): SpeechSynthesisVoice | undefined {
+  const mine = pickVoice(voiceURI);
+  const want = accent === 'UK' ? 'en-gb' : 'en-us';
+  if (mine && mine.lang.replace('_', '-').toLowerCase() === want) return mine;
+  return dialogueVoices(accent)[0].voice || mine;
+}

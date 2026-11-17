@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { createRecognition, speakWith, pickVoice, speechRecognitionSupported, type SpeechRecognitionLike } from '../lib/speech';
+import { accentVoice, createRecognition, preferredAccent, speakWith, speechRecognitionSupported, type SpeechRecognitionLike } from '../lib/speech';
 import { useStore } from '../lib/store';
 import Icon from './Icon';
 
@@ -28,9 +28,12 @@ export function heardWord(target: string, heard: string): boolean {
 }
 
 /** Play the target pronunciation with the user's chosen voice, a little slower. */
-export function useSayWord() {
+export function useSayWord(accent?: 'US' | 'UK') {
   const { state } = useStore();
-  return (word: string) => speakWith(word, { voice: pickVoice(state.settings.voiceURI), rate: Math.min(0.85, state.settings.rate), lang: 'en-US' });
+  return (word: string) => {
+    const a = accent || preferredAccent();
+    return speakWith(word, { voice: accentVoice(a, state.settings.voiceURI), rate: Math.min(0.85, state.settings.rate), lang: a === 'UK' ? 'en-GB' : 'en-US' });
+  };
 }
 
 export type TryResult = { ok: boolean; heard: string };

@@ -9,6 +9,7 @@ import { useStore } from '../lib/store';
 import type { PronunciationResult, PronWord } from '../lib/types';
 import { ErrorBox, Spinner } from './ui';
 import { useSayWord, WordTryButton } from './WordTry';
+import { preferredAccent } from '../lib/speech';
 
 const ISSUE_LABEL: Record<string, string> = {
   'final-consonant': 'Final sound',
@@ -37,6 +38,8 @@ interface Props {
   result?: PronunciationResult;
   onResult?: (r: PronunciationResult) => void;
   title?: string;
+  /** Target accent for tips, IPA and the word playback (default: the Listen tab choice, else US). */
+  accent?: 'US' | 'UK';
 }
 
 /**
@@ -44,7 +47,8 @@ interface Props {
  * a score, short notes, the transcript with 3–5 underlined problem words (tap to hear / retry),
  * one rhythm tip and one thing done well. Problem words are saved to "Sounds to fix".
  */
-export default function PronunciationCard({ clips, transcript, expected, context, result, onResult, title = '🗣️ Pronunciation' }: Props) {
+export default function PronunciationCard({ clips, transcript, expected, context, result, onResult, title = '🗣️ Pronunciation', accent: accentProp }: Props) {
+  const accent = accentProp || preferredAccent();
   const ai = useAIConfig();
   const { addSounds } = useStore();
   const [busy, setBusy] = useState(false);
@@ -66,7 +70,7 @@ export default function PronunciationCard({ clips, transcript, expected, context
     try {
       const audio = await prepareAudio(clips);
       if (!audio) throw new Error('No audio was captured. Record your answer with the mic and try again.');
-      const r = await pronunciationCheck(ai, audio, { expected, transcript, context });
+      const r = await pronunciationCheck(ai, audio, { expected, transcript, context, accent });
       if (!r.transcript.trim() && r.score === 0) throw new Error("I couldn't hear any speech in the recording. Check your microphone and try again.");
       setSaved(addSounds(r.words));
       setOpen('');
@@ -96,7 +100,7 @@ export default function PronunciationCard({ clips, transcript, expected, context
       )}
       {error && <div className="mt-2"><ErrorBox error={error} onRetry={run} /></div>}
 
-      {result && <PronResult result={result} open={open} setOpen={setOpen} />}
+      {result && <PronResult result={result} open={open} setOpen={setOpen} accent={accent} />}
 
       {result && (
         <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs">
@@ -111,8 +115,8 @@ export default function PronunciationCard({ clips, transcript, expected, context
 }
 
 /** The result body (also used read-only in History). */
-export function PronResult({ result, open, setOpen }: { result: PronunciationResult; open: string; setOpen: (w: string) => void }) {
-  const say = useSayWord();
+export function PronResult({ result, open, setOpen, accent }: { result: PronunciationResult; open: string; setOpen: (w: string) => void; accent?: 'US' | 'UK' }) {
+  const say = useSayWord(accent);
   // Match the transcript by the target word, or by how it sounded ("tree" for three) when the
   // transcript spells what was heard.
   const problems = useMemo(() => {
@@ -185,7 +189,7 @@ export function PronResult({ result, open, setOpen }: { result: PronunciationRes
         <div className="flex flex-wrap gap-1.5">{result.words.map((w) => <button key={w.word} type="button" onClick={() => tap(w)} data-testid="pron-word" className="chip bg-amber-100 text-amber-800 underline decoration-wavy">{w.word}</button>)}</div>
       )}
 
-      {active && <WordPanel w={active} />}
+      {active && <WordPanel w={active} accent={accent} />}
 
       {result.rhythmTip && <p className="rounded-lg bg-blue-50 p-2.5 text-sm text-blue-900 dark:bg-blue-950/50 dark:text-blue-100">🎵 <b>Rhythm:</b> {result.rhythmTip}</p>}
       {result.wellDone && <p className="rounded-lg bg-emerald-50 p-2.5 text-sm text-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-100">👏 {result.wellDone}</p>}
@@ -193,8 +197,8 @@ export function PronResult({ result, open, setOpen }: { result: PronunciationRes
   );
 }
 
-function WordPanel({ w }: { w: PronWord }) {
-  const say = useSayWord();
+function WordPanel({ w, accent }: { w: PronWord; accent?: 'US' | 'UK' }) {
+  const say = useSayWord(accent);
   return (
     <div className="rounded-lg border border-amber-200 bg-amber-50 p-2.5 dark:border-amber-900/60 dark:bg-amber-950/30" data-testid="pron-panel">
       <div className="flex flex-wrap items-baseline gap-x-2">

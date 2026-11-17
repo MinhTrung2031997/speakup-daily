@@ -161,7 +161,7 @@ function listenRow(userId: string, l: ListenSession) {
     question_score: l.questionScore == null ? null : clamp(Math.round(num(l.questionScore)), 0, 3),
     dictation_text: l.dictationText ?? null,
     dictation_accuracy: l.dictationAccuracy == null ? null : clamp(Math.round(num(l.dictationAccuracy)), 0, 100),
-    retell: l.retell ? j((({ fluency: _f, ...rest }) => rest)(l.retell)) : null,
+    retell: l.retell ? j(l.retell) : null, // includes the retell's fluency stats
     retell_score: l.retell ? clamp(Math.round(num(l.retell.score)), 0, 100) : null,
     pronunciation: l.pronunciation ? j(l.pronunciation) : null,
     session_date: date(l.date),

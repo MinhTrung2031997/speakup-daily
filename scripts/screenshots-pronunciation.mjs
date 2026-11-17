@@ -19,6 +19,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // and what Chrome's recogniser would type (it drops fillers and auto-corrects).
 const SAID = 'so I work as a developer last month I asked my team about the three things we think matter it was really useful';
 const CLIP_MS = WAV ? 18000 : 4000;
+// Demo run uses the UK accent (Listen tab choice) to check tips/playback follow it; the real run uses the default (US).
+const ACCENT = process.env.ACCENT || (REAL ? 'US' : 'UK');
 
 const args = ['--no-sandbox', '--disable-gpu', '--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', '--autoplay-policy=no-user-gesture-required'];
 if (WAV) args.push(`--use-file-for-fake-audio-capture=${WAV}%noloop`);
@@ -31,12 +33,12 @@ page.on('dialog', (d) => d.accept());
 await page.setViewport({ width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
 
 await page.evaluateOnNewDocument(() => {
-  const voices = [{ name: 'Fake US Joanna', lang: 'en-US', voiceURI: 'us1', default: true, localService: true }];
+  const voices = [{ name: 'Fake US Joanna', lang: 'en-US', voiceURI: 'us1', default: true, localService: true }, { name: 'Fake UK Amy', lang: 'en-GB', voiceURI: 'gb1', default: false, localService: true }];
   window.__spoken = [];
   window.SpeechSynthesisUtterance = class { constructor(t) { this.text = t; this.rate = 1; this.pitch = 1; } };
   let timers = [];
   const synth = {
-    speak(u) { window.__spoken.push({ text: u.text, rate: u.rate }); timers.push(setTimeout(() => u.onend && u.onend(), 150)); },
+    speak(u) { window.__spoken.push({ text: u.text, rate: u.rate, lang: u.lang }); timers.push(setTimeout(() => u.onend && u.onend(), 150)); },
     cancel() { timers.forEach(clearTimeout); timers = []; },
     getVoices: () => voices,
     addEventListener() {}, removeEventListener() {},
@@ -120,7 +122,7 @@ const runCheck = async (label, index = 0) => {
 
 try {
   await page.goto(BASE, { waitUntil: 'networkidle0' });
-  await page.evaluate((real) => { localStorage.clear(); if (!real) localStorage.setItem('speakup.demo', '1'); localStorage.setItem('speakup.todayMode', 'daily'); }, REAL);
+  await page.evaluate((real, acc) => { localStorage.clear(); if (!real) localStorage.setItem('speakup.demo', '1'); localStorage.setItem('speakup.todayMode', 'daily'); localStorage.setItem('speakup.listen', JSON.stringify({ accent: acc })); }, REAL, ACCENT);
   await page.reload({ waitUntil: 'networkidle0' });
   await waitText('Sign in to keep your practice saved', 30000);
   await page.type('#email', TEST_EMAIL);
@@ -179,8 +181,10 @@ try {
   const before = await page.evaluate(() => window.__spoken.length);
   await page.evaluate(() => document.querySelector('[data-testid="pron-word"]').click());
   await page.waitForSelector('[data-testid="pron-panel"]', { timeout: 5000 });
-  const said = await page.evaluate((n) => window.__spoken.slice(n).map((s) => s.text), before);
+  const saidAll = await page.evaluate((n) => window.__spoken.slice(n), before);
+  const said = saidAll.map((s) => s.text);
   ok('tapping a word plays it with speechSynthesis', said.some((s) => s.toLowerCase() === word.toLowerCase()), said.join(' | '));
+  ok(`word played in the ${ACCENT} accent`, saidAll.some((s) => s.lang === (ACCENT === 'UK' ? 'en-GB' : 'en-US')), saidAll.map((s) => s.lang).join(','));
   await page.evaluate((w) => window.__speechPlans.push([[200, 500, w]]), word);
   await page.click('[data-testid="pron-panel"] [data-testid="word-try"]');
   await page.waitForSelector('[data-testid="word-try-result"]', { timeout: 10000 });

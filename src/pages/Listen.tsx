@@ -378,7 +378,7 @@ export default function Listen() {
                   {(session.pronunciation || clips.length > 0) && (
                     <PronunciationCard clips={retell.trim() === session.retell.retell.trim() ? clips : []} transcript={session.retell.retell} result={session.pronunciation}
                       onResult={(r) => { const f = withAudioFluency(session.retell?.fluency, r); save({ pronunciation: r, ...(session.retell ? { retell: { ...session.retell, ...(f ? { fluency: f } : {}) } } : {}) }); }}
-                      context="retelling a short dialogue they just heard" title="🗣️ Pronunciation (your retell)" />
+                      context="retelling a short dialogue they just heard" accent={session.accent} title="🗣️ Pronunciation (your retell)" />
                   )}
                 </>
               ) : (
@@ -388,7 +388,7 @@ export default function Listen() {
                     <>
                       <MicInput value={retell} onChange={setRetell} onSpeech={(s) => setSamples((a) => [...a, s])} onAudio={(c) => { setClips((a) => [...a, c]); setPron(undefined); }} placeholder="Tap the mic and retell the chat, or type…" rows={4} />
                       {fluency && <FluencyCard stats={fluency} title="📈 Fluency (this retell)" />}
-                      <PronunciationCard clips={clips} transcript={retell} result={pron} onResult={setPron} context="retelling a short dialogue they just heard" title="🗣️ Pronunciation (this retell)" />
+                      <PronunciationCard clips={clips} transcript={retell} result={pron} onResult={setPron} context="retelling a short dialogue they just heard" accent={session.accent} title="🗣️ Pronunciation (this retell)" />
                       <button className="btn-primary" onClick={doRetell} disabled={!retell.trim() || scoring}>{scoring ? <Spinner /> : <Icon name="check" className="h-4 w-4" />} Score my retell</button>
                     </>
                   )}
@@ -451,7 +451,7 @@ export function RetellCard({ s, showPron = true }: { s: ListenSession; showPron?
       {r.phrasesUsed.length > 0 && <p className="text-sm">💬 Phrases you used: {r.phrasesUsed.map((p) => <mark key={p} className="mark-phrase mr-1">{p}</mark>)}</p>}
       <p className="rounded-lg bg-slate-50 p-2.5 text-sm text-slate-600 dark:bg-slate-800/60 dark:text-slate-300">“{r.retell}”</p>
       {r.fluency && <FluencyCard stats={r.fluency} title="📈 Fluency (your retell)" />}
-      {showPron && s.pronunciation && <PronunciationCard clips={[]} transcript={r.retell} result={s.pronunciation} title="🗣️ Pronunciation (your retell)" />}
+      {showPron && s.pronunciation && <PronunciationCard accent={s.accent} clips={[]} transcript={r.retell} result={s.pronunciation} title="🗣️ Pronunciation (your retell)" />}
       {r.tip && <p className="rounded-lg bg-blue-50 p-2.5 text-sm text-blue-900 dark:bg-blue-950/50 dark:text-blue-100">💡 <b>Tip:</b> {r.tip}</p>}
       {r.modelRetell && (
         <div>

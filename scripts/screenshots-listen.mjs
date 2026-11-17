@@ -249,6 +249,8 @@ try {
   await page.waitForFunction(() => document.body.innerText.includes('🎧'), { timeout: 20000 });
   ok('drill saved and shown in History', (await bodyHas('Retell')) && (await bodyHas('✍️')));
   await page.evaluate(() => document.querySelector('details summary')?.click());
+  await sleep(800);
+  ok('retell fluency saved and shown in History (after reload)', await bodyHas('Fluency (your retell)'));
   await shot(`${PREFIX}-7-history`);
   await page.goto(`${BASE}/progress`, { waitUntil: 'networkidle0' });
   await waitText('Dictation accuracy');

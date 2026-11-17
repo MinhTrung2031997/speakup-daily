@@ -426,12 +426,15 @@ export const PRON_ISSUES = ['final-consonant', 'th', 's-sh', 'stress', 'vowel', 
 export async function pronunciationCheck(
   cfg: GeminiConfig,
   audio: { mimeType: string; data: string; seconds: number; measured?: { pauses: number; longestPause: number; speechSeconds: number } },
-  opts: { expected?: string; transcript?: string; context?: string },
+  opts: { expected?: string; transcript?: string; context?: string; accent?: 'US' | 'UK' },
 ): Promise<PronunciationResult> {
+  const accent = opts.accent === 'UK' ? 'UK' : 'US';
+  const accentName = accent === 'UK' ? 'British (UK)' : 'American (US)';
   const prompt = `You are listening to a recording of a Vietnamese learner of English (B1–B2) speaking${opts.context ? ` (${opts.context})` : ''}.
 ${opts.expected ? `They were trying to say: """${opts.expected.slice(0, 1500)}"""` : 'They were answering freely (no script).'}
 ${opts.transcript ? `Browser speech recognition heard (a rough hint only: it auto-corrects mistakes and drops fillers, so trust the AUDIO, not this text): """${opts.transcript.slice(0, 1500)}"""` : ''}
 The recording is about ${Math.round(audio.seconds)} seconds long.
+The learner is copying a standard ${accentName} accent: judge sounds against that accent and write every tip and IPA for it.
 
 Step 1 – transcribe EXACTLY what you hear, word for word, including every hesitation (um, uh, er) and filler phrase (like, you know, I mean). Use normal spelling.
 Step 2 – coach their pronunciation. Prioritise the problems Vietnamese speakers typically have:
@@ -442,7 +445,7 @@ Step 2 – coach their pronunciation. Prioritise the problems Vietnamese speaker
 Only report problems you clearly hear in THIS audio. Do not invent problems, do not repeat these examples unless you really hear them, and never comment on grammar or word choice.
 
 Rules:
-- "words": the 3 to 5 most useful problem words (fewer if the speech was good; never more than 5). "word" = the word they MEANT, spelled correctly (if the hint or your transcript contains the mispronounced form, e.g. "tree" for three or "ask" for asked, still give the intended word). For each: "heard" = roughly what it sounded like (simple spelling), "issue" = one of ${JSON.stringify(PRON_ISSUES)}, "tip" = ONE short, simple, practical tip for that word (max 14 words; show stress with capitals, e.g. "de-VEL-op"), "ipa" = standard American IPA of the word.
+- "words": the 3 to 5 most useful problem words (fewer if the speech was good; never more than 5). "word" = the word they MEANT, spelled correctly (if the hint or your transcript contains the mispronounced form, e.g. "tree" for three or "ask" for asked, still give the intended word). For each: "heard" = roughly what it sounded like (simple spelling), "issue" = one of ${JSON.stringify(PRON_ISSUES)}, "tip" = ONE short, simple, practical tip for that word (max 14 words; show stress with capitals, e.g. "de-VEL-op"), "ipa" = standard ${accent} IPA of the word.
 - "rhythmTip": ONE linking/rhythm tip for the whole answer using a phrase they actually said (e.g. "want to → wanna", "a lot of → a-lo-dəv"). Max 20 words.
 - "wellDone": one specific thing they did well (max 15 words).
 - "clarity", "intonation", "pace": one short sentence each (max 14 words).
@@ -482,7 +485,12 @@ JSON shape: {"transcript": string, "fillers": {"<filler>": number}, "longPauses"
       ipa: str(w?.ipa).replace(/^\/|\/$/g, ''),
     }))
     // A "th" problem reported on a word with no "th" is the heard form ("tree", "tink"): restore it.
-    .map((w) => (w.issue === 'th' && !/th/i.test(w.word) && /^[td]/i.test(w.word) ? { ...w, heard: w.heard || w.word, word: w.word.replace(/^[td]/i, 'th') } : w))
+    .map((w) => {
+      if (w.issue !== 'th' || /th/i.test(w.word) || !/^[td]/i.test(w.word)) return w;
+      const fixed = w.word.replace(/^[td]/i, 'th');
+      // Only when the repaired word was really said/meant (so "to"/"do" never become "tho").
+      return hintWords.includes(fixed.toLowerCase()) ? { ...w, heard: w.heard || w.word, word: fixed } : w;
+    })
     .filter((w) => w.word && w.tip && !seen.has(w.word.toLowerCase()) && seen.add(w.word.toLowerCase()))
     .slice(0, 5);
   const transcript = str(r.transcript) || opts.transcript || '';
