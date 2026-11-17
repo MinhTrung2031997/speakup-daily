@@ -227,6 +227,7 @@ export default function AnswerBuilder() {
         createdAt: Date.now(),
       };
       update((s) => ({ ...s, entries: s.entries.some((x) => x.id === e.id) ? s.entries.map((x) => (x.id === e.id ? e : x)) : [...s.entries, e] }));
+      addPhrases(r.phrases, question, 'builder'); // auto-collect highlighted phrases into the word bank
       setEntryId(e.id);
       setPractice(false);
       setAttempt('');
@@ -412,7 +413,7 @@ export default function AnswerBuilder() {
 
       {entry?.upgrade && entry.builder && (
         <div ref={answerRef} className="scroll-mt-20 space-y-4">
-          <BuilderResult entry={entry} hidden={practice} onSave={(items) => addPhrases(items, entry.question)} step={4} onIdea={entry.question === question ? openManual : undefined} />
+          <BuilderResult entry={entry} hidden={practice} onSave={(items) => addPhrases(items, entry.question, 'builder')} step={4} onIdea={entry.question === question ? openManual : undefined} />
           {!practice && <ShadowCard text={entry.upgrade.natural} phrases={entry.upgrade.phrases.map((p) => p.phrase)} hint="Shadow the model answer one sentence at a time: listen, repeat, then compare it with your own voice." />}
 
           <div ref={tryRef}>

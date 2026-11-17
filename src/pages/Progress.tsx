@@ -146,6 +146,11 @@ export default function Progress() {
       <div className="grid gap-4 md:grid-cols-2">
         <div className="card">
           <h2 className="h-section mb-3">Phrase journey</h2>
+          <div className="mb-3 grid grid-cols-3 gap-2 text-center" data-testid="learn-counts">
+            <div className="rounded-xl bg-blue-50 p-2 dark:bg-blue-950/40"><p className="text-lg font-bold">{state.phrases.filter((p) => p.stage < MASTERED_STAGE).length}</p><p className="text-[11px] text-slate-500">Learning</p></div>
+            <div className="rounded-xl bg-emerald-50 p-2 dark:bg-emerald-950/40"><p className="text-lg font-bold">{state.phrases.filter((p) => p.learnedByVoice).length}</p><p className="text-[11px] text-slate-500">🎙️ Used by voice</p></div>
+            <div className="rounded-xl bg-amber-50 p-2 dark:bg-amber-950/40"><p className="text-lg font-bold">{ps.mastered}</p><p className="text-[11px] text-slate-500">🏆 Mastered</p></div>
+          </div>
           <div className="space-y-2">
             {stages.map((n, i) => (
               <div key={i} className="flex items-center gap-2 text-sm">

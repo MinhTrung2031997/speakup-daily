@@ -13,7 +13,7 @@ export default function PhraseCards({ phrases, source, title = '✨ Phrases to s
   const saved = (p: PhraseItem) => inBank.has(cleanPhrase(p.phrase).toLowerCase());
   const unsaved = phrases.filter((p) => !saved(p));
   const save = (items: PhraseItem[]) => {
-    const n = addPhrases(items, source);
+    const n = addPhrases(items, source, source.startsWith('Listen') ? 'listen' : 'answer');
     setMsg(n ? `Saved ${n} phrase${n > 1 ? 's' : ''} to your Phrase Bank.` : 'Already in your Phrase Bank.');
   };
   return (

@@ -28,3 +28,17 @@ export function stageLabel(stage: number): string {
   if (stage === 0) return 'New';
   return `Review ${stage}/${MASTERED_STAGE}`;
 }
+
+/**
+ * Three-level grading (Natural / Understandable / Off). Review dates are always computed here, never by the AI.
+ * - natural: a full step forward (same as a correct review).
+ * - understandable: half credit: keep the stage, come back after half the gap a correct review would use (min 1 day).
+ * - off: same as a wrong review (stage down by 1, due tomorrow).
+ */
+export function scheduleLevel(p: SrsItem, level: 'natural' | 'understandable' | 'off', today = todayStr()): SrsItem {
+  if (level === 'natural') return schedule(p, true, today);
+  if (level === 'off') return schedule(p, false, today);
+  const s = Math.min(p.stage, MASTERED_STAGE - 1);
+  const gap = s + 1 < INTERVALS.length ? INTERVALS[s + 1] - INTERVALS[s] : INTERVALS[s] - (INTERVALS[s - 1] ?? 0);
+  return { stage: s, due: addDays(today, Math.max(1, Math.floor(gap / 2))) };
+}

@@ -214,7 +214,8 @@ export default function Today() {
         </div>
         <div className="flex gap-2">
           <span className="chip bg-orange-100 text-orange-800 dark:bg-orange-500/15 dark:text-orange-200"><Icon name="fire" className="h-3.5 w-3.5" /> {st.current} day streak</span>
-          {due > 0 && <Link to="/phrases" className="chip bg-amber-100 text-amber-800 hover:bg-amber-200 dark:bg-amber-400/15 dark:text-amber-200">🔁 {due} to review</Link>}
+          {due > 0 && <Link to="/phrases" className="chip bg-amber-100 text-amber-800 hover:bg-amber-200 dark:bg-amber-400/15 dark:text-amber-200" data-testid="due-badge">📚 {due} phrase{due > 1 ? 's' : ''} due</Link>}
+          {state.questions.some((x) => x.date < todayStr()) && <Link to="/replay" className="chip bg-violet-100 text-violet-800 hover:bg-violet-200 dark:bg-violet-400/15 dark:text-violet-200" data-testid="replay-link">🔁 Replay</Link>}
         </div>
       </div>
 

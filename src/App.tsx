@@ -5,6 +5,7 @@ import Today from './pages/Today';
 import Chat from './pages/Chat';
 import Listen from './pages/Listen';
 import Phrases from './pages/Phrases';
+import Replay from './pages/Replay';
 import History from './pages/History';
 import Progress from './pages/Progress';
 import Profile from './pages/Profile';
@@ -22,6 +23,7 @@ export default function App() {
           <Route path="listen" element={<Listen />} />
           <Route path="chat" element={<Chat />} />
           <Route path="phrases" element={<Phrases />} />
+          <Route path="replay" element={<Replay />} />
           <Route path="history" element={<History />} />
           <Route path="progress" element={<Progress />} />
           <Route path="profile" element={<Profile />} />

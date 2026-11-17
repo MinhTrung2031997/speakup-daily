@@ -80,6 +80,48 @@ export function mockResponse(task: string, turns: GeminiTurn[]): unknown {
         improve: ['Instead of "I very like it", say "I really like it".', 'Link ideas with "On top of that" instead of starting every sentence with "And".'],
         phrasesUsed: ['The thing is'],
       };
+    case 'wordcheck': {
+      const phrase = (last.match(/Target phrase: (.+)/)?.[1] || '').trim();
+      const said = (last.match(/"""([\s\S]*?)"""/)?.[1] || '').toLowerCase();
+      const has = !!phrase && said.includes(phrase.toLowerCase());
+      const close = !has && phrase.split(' ').filter((w) => w.length > 3).some((w) => said.includes(w.toLowerCase()));
+      const lvl = has ? 'natural' : close ? 'understandable' : 'off';
+      return {
+        used: has || close, level: lvl,
+        feedback: lvl === 'natural' ? 'Nice! You used it naturally.' : lvl === 'understandable' ? 'The meaning is right; just fix the form a little.' : `You didn't use "${phrase}" here. Try once more with the exact phrase.`,
+        betterSentence: `Honestly, ${phrase} is something I say a lot at work now.`, nextReviewDays: 3,
+      };
+    }
+    case 'compare': {
+      const targets = JSON.parse(last.match(/Target phrases the learner was asked to use \(grade each\): (\[.*\])/)?.[1] || '[]') as string[];
+      const newA = (last.match(/NEW answer[^"]*"""([\s\S]*?)"""/)?.[1] || '').toLowerCase();
+      return {
+        improved: ['Added a clear reason', 'Gave a concrete example from work'],
+        fixNext: 'Finish with a one-line wrap-up so the listener knows you are done.',
+        wordsUsed: [], structureOld: 'Point only', structureNew: 'Point → Reason → Example',
+        score: { old: 4, new: 7 },
+        upgradedSentence: 'The thing is, I learn faster when I explain my ideas out loud.',
+        targets: targets.map((t) => ({ phrase: t, level: newA.includes(t.toLowerCase()) ? 'natural' : 'off', fix: newA.includes(t.toLowerCase()) ? 'Used clearly and in the right place.' : `Not used. Try: "${t}, I think it really helps."` })),
+      };
+    }
+    case 'fillblank': {
+      const phrase = (last.match(/Phrase: (.+)/)?.[1] || 'on top of that').trim();
+      const sentence = `I missed the bus, and ${phrase} it started to rain.`;
+      return { sentence, blanked: sentence.replace(phrase, '____'), options: ['in the long run', phrase, 'as a matter of fact', 'by the way'], answer: 1 };
+    }
+    case 'situation': {
+      const list = JSON.parse(last.match(/Phrase list \(the learner can see these and must pick one\): (\[.*\])/)?.[1] || '[]') as { phrase: string }[];
+      return { setting: 'work', scene: 'Your teammate on Discord asks why you moved your stand-up to the afternoon.', sayThis: 'Reply in 2–3 spoken sentences. Pick the phrase from your list that fits best.', intended: list[0]?.phrase || '', alsoOk: [] };
+    }
+    case 'speedround': {
+      const list = JSON.parse(last.match(/Target phrases: (\[.*\])/)?.[1] || '[]') as { phrase: string }[];
+      const said = (last.match(/"""([\s\S]*?)"""/)?.[1] || '').toLowerCase();
+      return { results: list.map((p) => ({ phrase: p.phrase, level: said.includes(p.phrase.toLowerCase()) ? 'natural' : 'off', feedback: said.includes(p.phrase.toLowerCase()) ? 'Used naturally.' : 'Missing.', better: `I think ${p.phrase} fits here.` })), tip: 'Link the phrases with "and" or "so" instead of starting a new sentence each time.' };
+    }
+    case 'meanings': {
+      const list = JSON.parse(last.match(/Phrases: (\[.*\])/)?.[1] || '[]') as string[];
+      return { items: list.map((p) => ({ phrase: p, meaning: `a natural way to say "${p}" in conversation`, example: `I use "${p}" when I chat with my team.` })) };
+    }
     case 'review':
       return {
         ok: last.length > 15,

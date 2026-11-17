@@ -92,6 +92,7 @@ export default function SuggestedAnswer({ q, onClose, autoStart = true }: { q: D
     const others = current().filter((x) => x.id !== v.id);
     const nv = await suggest(ai, state.profile, q, level, seconds, others, v.stance);
     save(current().map((x) => (x.id === v.id ? { ...nv, id: v.id } : x)));
+    addPhrases(nv.phrases, q.question, 'suggested'); // auto-collect highlighted phrases into the word bank
   });
 
   /** First version, or "➕ Another angle": a new version added below the others. */
@@ -100,6 +101,7 @@ export default function SuggestedAnswer({ q, onClose, autoStart = true }: { q: D
     if (prev.length >= MAX_VERSIONS) return;
     const nv = await suggest(ai, state.profile, q, level, seconds, prev, prev.length ? nextStance(prev.map((x) => x.stance)) : undefined);
     save([...prev, nv]);
+    addPhrases(nv.phrases, q.question, 'suggested'); // auto-collect highlighted phrases into the word bank
     setOpenId(nv.id);
     setTimeout(() => document.getElementById(`sv-${nv.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
   });
@@ -161,7 +163,7 @@ export default function SuggestedAnswer({ q, onClose, autoStart = true }: { q: D
               title={list.length > 1 ? `💡 Suggested answer V${i + 1}` : '💡 Suggested answer'}
               controls={controls}
               busy={busy === 'rewrite'}
-              onSave={(items) => addPhrases(items, q.question)}
+              onSave={(items) => addPhrases(items, q.question, 'suggested')}
             />
             {busy !== 'rewrite' && <ShadowCard text={v.answer} phrases={v.phrases.map((p) => p.phrase)} hint="Shadow the suggested answer one sentence at a time, then answer in your own words." />}
           </div>

@@ -1,4 +1,6 @@
 import { generateJSON, type GeminiConfig, type GeminiTurn } from './gemini';
+import * as LP from './learnPrompts';
+import type { UsageLevel } from './learnPrompts';
 import type { BuilderLength, BuilderLevel, BuilderPart, ChatFeedback, ChatMessage, Correction, ListenDrill, ListenLine, PhraseItem, Profile, PronunciationResult, PronWord, QuestionType, RetellResult, RetryResult, Upgrade } from './types';
 
 const TONE = `You are "Coach Mia", a warm, encouraging English speaking coach for a Vietnamese learner (around B1–B2).
@@ -623,4 +625,94 @@ JSON shape: {"transcript": string, "fillers": {"<filler>": number}, "longPauses"
     seconds: audio.seconds,
     createdAt: Date.now(),
   };
+}
+
+// ---------- Replay + Learn highlighted words (EL's prompts, see learnPrompts.ts) ----------
+const LEVELS: UsageLevel[] = ['natural', 'understandable', 'off'];
+const level = (v: unknown): UsageLevel => (LEVELS.includes(v as UsageLevel) ? (v as UsageLevel) : 'off');
+
+export interface WordCheck { used: boolean; level: UsageLevel; feedback: string; betterSentence: string }
+
+/** Grade a spoken/typed sentence that should use `phrase` on 3 levels (natural / understandable / off). */
+export async function checkWordUsage(cfg: GeminiConfig, phrase: string, meaning: string, sentence: string): Promise<WordCheck> {
+  const r = await generateJSON<Record<string, unknown>>(cfg, 'wordcheck', TONE, [{ role: 'user', text: LP.checkWordUsagePrompt(phrase, meaning, sentence) }], 0.4);
+  return { used: r.used === true || r.used === 'true', level: level(r.level), feedback: str(r.feedback), betterSentence: str(r.betterSentence) };
+}
+
+export async function compareAnswers(cfg: GeminiConfig, question: string, oldAnswer: string, newAnswer: string, bank: string[], targets: string[]): Promise<LP.CompareResult> {
+  const r = await generateJSON<Record<string, unknown>>(cfg, 'compare', TONE, [{ role: 'user', text: LP.compareAnswersPrompt(question, oldAnswer, newAnswer, bank.slice(0, 80), targets) }], 0.4);
+  const sc = (r.score || {}) as Record<string, unknown>;
+  const clamp10 = (v: unknown) => Math.max(1, Math.min(10, Math.round(Number(v) || 5)));
+  const tg = arr<Record<string, unknown>>(r.targets);
+  return {
+    improved: arr<unknown>(r.improved).map((x) => str(x)).filter(Boolean).slice(0, 3),
+    fixNext: str(r.fixNext),
+    // Never trust the model's list alone: keep only bank phrases really present in the new answer.
+    wordsUsed: LP.filterWordsUsed(bank, arr<unknown>(r.wordsUsed).map((x) => str(x)), newAnswer),
+    structureOld: str(r.structureOld),
+    structureNew: str(r.structureNew),
+    score: { old: clamp10(sc.old), new: clamp10(sc.new) },
+    upgradedSentence: str(r.upgradedSentence),
+    targets: targets.map((p, i) => {
+      const t = tg.find((x) => str(x.phrase).toLowerCase() === p.toLowerCase()) || tg[i] || {};
+      return { phrase: p, level: level(t.level), fix: str(t.fix) };
+    }),
+  };
+}
+
+export async function fillInBlank(cfg: GeminiConfig, phrase: string, meaning: string, source: string): Promise<LP.FillBlank> {
+  let last: LP.FillBlank | null = null;
+  for (let i = 0; i < 2; i++) {
+    const r = await generateJSON<Record<string, unknown>>(cfg, 'fillblank', TONE, [{ role: 'user', text: LP.fillInBlankPrompt(phrase, meaning, source) }], 0.8);
+    let f: LP.FillBlank = { sentence: str(r.sentence), blanked: str(r.blanked), options: arr<unknown>(r.options).map((x) => str(x)), answer: Math.round(Number(r.answer)) };
+    f = LP.repairFillBlank(f, phrase);
+    if (!LP.fillBlankProblem(f, phrase, source)) return f;
+    last = f;
+  }
+  // Last resort: build the blank ourselves from the generated sentence if it contains the phrase.
+  if (last && last.sentence.toLowerCase().includes(phrase.toLowerCase())) {
+    const i = last.sentence.toLowerCase().indexOf(phrase.toLowerCase());
+    const blanked = `${last.sentence.slice(0, i)}____${last.sentence.slice(i + phrase.length)}`;
+    const opts = [...new Set([phrase, ...last.options.filter((o) => o.toLowerCase() !== phrase.toLowerCase())])].slice(0, 4);
+    if (opts.length === 4) return { ...last, blanked, options: opts, answer: 0 };
+  }
+  throw new Error('Could not make a good fill-in-the-blank for this phrase. Try another one.');
+}
+
+export async function situationPrompt(cfg: GeminiConfig, profile: Profile, phrases: { phrase: string; meaning?: string }[]): Promise<LP.Situation> {
+  const list = phrases.map((p) => p.phrase);
+  for (let i = 0; i < 2; i++) {
+    const r = await generateJSON<Record<string, unknown>>(cfg, 'situation', TONE, [{ role: 'user', text: LP.situationPromptText(profileText(profile), phrases) }], 0.9);
+    const intended = list.find((p) => p.toLowerCase() === str(r.intended).toLowerCase()) || '';
+    const s: LP.Situation = { setting: r.setting === 'daily' ? 'daily' : 'work', scene: str(r.scene), sayThis: str(r.sayThis), intended, alsoOk: arr<unknown>(r.alsoOk).map((x) => str(x)).filter((x) => list.includes(x) && x !== intended) };
+    if (s.scene && intended && !LP.sceneLeaks(s.scene, list)) return s;
+  }
+  throw new Error('Could not write a situation. Please try again.');
+}
+
+export async function speedRound(cfg: GeminiConfig, phrases: { phrase: string; meaning?: string }[], transcript: string): Promise<LP.SpeedResult> {
+  const r = await generateJSON<Record<string, unknown>>(cfg, 'speedround', TONE, [{ role: 'user', text: LP.speedRoundPrompt(phrases, transcript) }], 0.4);
+  const res = arr<Record<string, unknown>>(r.results);
+  return {
+    results: phrases.map((p, i) => {
+      const x = res.find((y) => str(y.phrase).toLowerCase() === p.phrase.toLowerCase()) || res[i] || {};
+      return { phrase: p.phrase, level: level(x.level), feedback: str(x.feedback), better: str(x.better) };
+    }),
+    tip: str(r.tip),
+  };
+}
+
+/** Meanings + examples for phrases that have none (one batched call; cached on the phrase). */
+export async function phraseMeanings(cfg: GeminiConfig, phrases: string[]): Promise<Record<string, { meaning: string; example: string }>> {
+  if (!phrases.length) return {};
+  const prompt = `For each English phrase below, give a short, simple meaning (B1 words, max 12 words) and one natural everyday example sentence.
+Phrases: ${JSON.stringify(phrases.slice(0, 20))}
+JSON shape: {"items": [{"phrase": string, "meaning": string, "example": string}]}`;
+  const r = await generateJSON<Record<string, unknown>>(cfg, 'meanings', TONE, [{ role: 'user', text: prompt }], 0.3);
+  const out: Record<string, { meaning: string; example: string }> = {};
+  for (const it of arr<Record<string, unknown>>(r.items)) {
+    const p = phrases.find((x) => x.toLowerCase() === str(it.phrase).toLowerCase());
+    if (p && str(it.meaning)) out[p] = { meaning: str(it.meaning), example: str(it.example) };
+  }
+  return out;
 }

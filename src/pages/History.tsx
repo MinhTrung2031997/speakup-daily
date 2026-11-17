@@ -1,6 +1,6 @@
 import { groupTopics, topicIdOf } from '../lib/topics';
 import { useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import SuggestedAnswer, { reusedPhrases } from '../components/SuggestedAnswer';
 import { CompareRecordings, RecordingList } from '../components/RecordingPlayer';
 import { useStore } from '../lib/store';
@@ -115,6 +115,7 @@ export default function History() {
 
       {tab === 'daily' ? (
         <div className="space-y-2">
+          <Link to="/replay" className="flex items-center justify-between rounded-xl bg-violet-50 px-3 py-2 text-sm font-medium text-violet-800 dark:bg-violet-400/10 dark:text-violet-200" data-testid="history-replay">🔁 Replay a random old question <span aria-hidden>→</span></Link>
           <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Daily filter">
             {([['all', 'All'], ['answered', 'Answered'], ['suggested', 'Suggested only'], ['starred', '⭐ Starred']] as const).map(([id, label]) => (
               <button key={id} role="tab" aria-selected={dailyFilter === id} onClick={() => { setDailyFilter(id); setDailyShown(10); }}
@@ -218,7 +219,7 @@ function EntryDetail({ e, showRecordings = true }: { e: Entry; showRecordings?: 
           {showRecordings && <div className="mb-4"><RecordingList recs={state.recordings.filter((r) => r.answerId === e.id)} /></div>}
           {e.fluency && <div className="mb-4"><FluencyCard stats={e.fluency} title="📈 Fluency (your answer)" /></div>}
           {e.pronunciation && <div className="mb-4"><PronunciationCard clips={[]} transcript={e.answer} result={e.pronunciation} /></div>}
-          {e.builder && e.upgrade ? <BuilderResult entry={e} onSave={(items) => addPhrases(items, e.question)} /> : e.upgrade ? <UpgradeResult entry={e} /> : <p className="muted">No upgrade for this answer.</p>}
+          {e.builder && e.upgrade ? <BuilderResult entry={e} onSave={(items) => addPhrases(items, e.question, 'builder')} /> : e.upgrade ? <UpgradeResult entry={e} /> : <p className="muted">No upgrade for this answer.</p>}
           {e.upgrade && <div className="mt-4"><ShadowCard text={e.upgrade.natural} phrases={e.upgrade.phrases.map((p) => p.phrase)} /></div>}
           {e.retry && (
             <div className="mt-3 rounded-xl bg-slate-50 p-3 text-sm dark:bg-slate-800/50">
@@ -265,7 +266,7 @@ function DailyRow({ q, answers, open, onToggle }: { q: DailyQuestion; answers: E
             {answers.length ? answers.map((e, i) => (
               <div key={e.id} className="mb-3 space-y-3">
                 <div className="rounded-xl bg-slate-50 p-3 text-sm dark:bg-slate-800/50">
-                  {answers.length > 1 && <p className="mb-1 text-xs font-semibold text-slate-500">Answer {i + 1}</p>}
+                  {answers.length > 1 && <p className="mb-1 text-xs font-semibold text-slate-500">Answer {i + 1}{e.replay ? ' · 🔁 replay' : ''}{e.replay?.compare ? ` · ${e.replay.compare.score.old}→${e.replay.compare.score.new}/10` : ''}</p>}
                   <p className="text-slate-700 dark:text-slate-200">“{e.answer}”</p>
                   {fluencyLine(e) && <p className="mt-1 text-xs text-slate-500">{fluencyLine(e)}</p>}
                 </div>
@@ -275,7 +276,8 @@ function DailyRow({ q, answers, open, onToggle }: { q: DailyQuestion; answers: E
                   <div className="mt-3"><EntryDetail e={e} showRecordings={false} /></div>
                 </details>
               </div>
-            )) : <p className="muted text-sm">Not answered yet. Try it on Today.</p>}
+            )) : <p className="muted text-sm">Not answered yet.</p>}
+            <Link to={`/replay?q=${q.id}`} className="btn-soft !py-1.5 text-sm" data-testid="answer-again">🔁 Answer again</Link>
             {reused.length > 0 && (
               <p className="text-xs text-slate-500">💡 Suggested phrases you used: {reused.filter((r) => r.used).map((r) => r.phrase).join(', ') || 'none yet'} ({reused.filter((r) => r.used).length}/{reused.length})</p>
             )}

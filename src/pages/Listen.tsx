@@ -92,7 +92,7 @@ function useDialoguePlayer(accent: Accent) {
 }
 
 export default function Listen() {
-  const { state, update, logActivity, saveRecordings } = useStore();
+  const { state, update, logActivity, saveRecordings, addPhrases } = useStore();
   const [recNote, setRecNote] = useState('');
   const ai = useAIConfig();
   const [prefs, setPrefsState] = useState<Prefs>(loadPrefs);
@@ -163,6 +163,7 @@ export default function Listen() {
       const drill = await listenDrill(ai, state.profile, plain, prefs.level, 75, state.listens.map((l) => l.drill.title));
       const s: ListenSession = { id: uid(), date: todayStr(), topic, accent: prefs.accent, speed: prefs.speed, level: prefs.level, drill, createdAt: Date.now() };
       update((st) => ({ ...st, listens: [...st.listens, s] }));
+      addPhrases(drill.phrases, `Listen: ${drill.title}`, 'listen'); // auto-collect into the word bank
       setSessionId(s.id);
       logActivity();
       setTimeout(() => topRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);

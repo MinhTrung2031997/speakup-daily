@@ -1,8 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import type { AppState, Phrase, PhraseItem, PronunciationResult, PronWord, RecordingItem, ShadowAttemptInput, SoundItem } from './types';
+import type { AppState, Phrase, PhraseItem, PhraseOrigin, PronunciationResult, PronWord, RecordingItem, ReviewDrill, ShadowAttemptInput, SoundItem, UsageLevel } from './types';
 import type { AudioClip } from './audio';
 import { addDays, todayStr, uid } from './date';
-import { MASTERED_STAGE, initialDue } from './srs';
+import { MASTERED_STAGE, initialDue, scheduleLevel } from './srs';
 import { cleanPhrase } from './diff';
 import { setDemoMode } from './gemini';
 import { supabase } from './supabase';
@@ -81,7 +81,9 @@ interface Store {
   update: (fn: Updater) => void;
   addSpeaking: (seconds: number) => void;
   logActivity: () => void;
-  addPhrases: (items: PhraseItem[], source: string) => number;
+  addPhrases: (items: PhraseItem[], source: string, origin?: PhraseOrigin) => number;
+  /** Record a 3-level review (natural / understandable / off); dates come from srs.scheduleLevel. */
+  reviewPhrase: (id: string, r: { level: UsageLevel; sentence: string; feedback: string; drill: ReviewDrill; byVoice: boolean }) => void;
   saveShadow: (a: ShadowAttemptInput) => void;
   /** Attach a pronunciation check to a shadowing take saved with saveShadow({ id }). */
   saveShadowPron: (id: string, p: PronunciationResult) => void;
@@ -197,7 +199,7 @@ export function StoreProvider({ userId, email, children }: { userId: string; ema
     update((s) => ({ ...s, activityLog: { ...s.activityLog, [d]: (s.activityLog[d] || 0) + 1 } }));
   }, [update]);
 
-  const addPhrases = useCallback((items: PhraseItem[], source: string) => {
+  const addPhrases = useCallback((items: PhraseItem[], source: string, origin: PhraseOrigin = 'answer') => {
     // Compute synchronously from the latest state so we can report how many were added.
     const cur = stateRef.current;
     if (!cur) return 0;
@@ -208,7 +210,7 @@ export function StoreProvider({ userId, email, children }: { userId: string; ema
       const key = cleanPhrase(it.phrase).toLowerCase();
       if (!key || existing.has(key)) continue;
       existing.add(key);
-      fresh.push({ ...it, id: uid(), source, createdAt: Date.now(), addedDate: today, stage: 0, due: initialDue(today), reviews: [] });
+      fresh.push({ phrase: it.phrase, meaning: it.meaning || '', example: it.example || '', id: uid(), source, createdAt: Date.now(), addedDate: today, stage: 0, due: initialDue(today), reviews: [], origin });
     }
     if (fresh.length) {
       update((s) => {
@@ -218,6 +220,21 @@ export function StoreProvider({ userId, email, children }: { userId: string; ema
       });
     }
     return fresh.length;
+  }, [update]);
+
+  const reviewPhrase = useCallback((id: string, r: { level: UsageLevel; sentence: string; feedback: string; drill: ReviewDrill; byVoice: boolean }) => {
+    update((s) => ({
+      ...s,
+      phrases: s.phrases.map((p) => {
+        if (p.id !== id) return p;
+        const sched = scheduleLevel(p, r.level);
+        return {
+          ...p, ...sched,
+          learnedByVoice: p.learnedByVoice || (r.level === 'natural' && r.byVoice),
+          reviews: [...p.reviews, { date: todayStr(), sentence: r.sentence, ok: r.level === 'natural', feedback: r.feedback, level: r.level, drill: r.drill }],
+        };
+      }),
+    }));
   }, [update]);
 
   const shadowSaves = useRef(new Map<string, Promise<void>>());
@@ -338,8 +355,8 @@ export function StoreProvider({ userId, email, children }: { userId: string; ema
   }, [flush]);
 
   const value = useMemo(
-    () => (state ? { state, userId, email, update, addSpeaking, logActivity, addPhrases, saveShadow, saveShadowPron, saveRecordings, toggleStar, removeRecording, addSounds, importData, dismissBrowserImport, legacy, resetData, reload: load, signOut, saving, saveError } : null),
-    [state, userId, email, update, addSpeaking, logActivity, addPhrases, saveShadow, saveShadowPron, saveRecordings, toggleStar, removeRecording, addSounds, importData, dismissBrowserImport, legacy, resetData, load, signOut, saving, saveError],
+    () => (state ? { state, userId, email, update, addSpeaking, logActivity, addPhrases, reviewPhrase, saveShadow, saveShadowPron, saveRecordings, toggleStar, removeRecording, addSounds, importData, dismissBrowserImport, legacy, resetData, reload: load, signOut, saving, saveError } : null),
+    [state, userId, email, update, addSpeaking, logActivity, addPhrases, reviewPhrase, saveShadow, saveShadowPron, saveRecordings, toggleStar, removeRecording, addSounds, importData, dismissBrowserImport, legacy, resetData, load, signOut, saving, saveError],
   );
 
   if (!value) {
