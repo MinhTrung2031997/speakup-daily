@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import type { Entry, PhraseItem } from '../lib/types';
+import { useState, type ReactNode } from 'react';
+import type { BuilderInfo, PhraseItem } from '../lib/types';
 import { cleanPhrase } from '../lib/diff';
 import { useStore } from '../lib/store';
 import ListenPlayer from './ListenPlayer';
@@ -13,8 +13,26 @@ const COLORS = [
   'bg-rose-100 text-rose-800 dark:bg-rose-900/50 dark:text-rose-200',
 ];
 
-/** The Answer builder's model answer: Listen player, labelled parts, the learner's picks and savable phrases. */
-export default function BuilderResult({ entry, hidden = false, onSave, step }: { entry: Entry; hidden?: boolean; onSave?: (items: PhraseItem[]) => number; step?: number }) {
+/** Anything with a model answer + builder info (a builder Entry, or a daily question's suggested answer). */
+export interface BuilderView {
+  upgrade?: { natural: string; phrases: PhraseItem[] };
+  builder?: BuilderInfo;
+}
+
+/** A model answer: Listen player, labelled parts with the idea used for each, and savable phrases. */
+export default function BuilderResult({ entry, hidden = false, onSave, step, title = '🎧 Your model answer', controls, onIdea, busy = false }: {
+  entry: BuilderView;
+  hidden?: boolean;
+  onSave?: (items: PhraseItem[]) => number;
+  step?: number;
+  title?: string;
+  /** Extra controls under the header (e.g. the level / length switcher). */
+  controls?: ReactNode;
+  /** Tap an idea label to swap it (chips load lazily). */
+  onIdea?: (slot: string) => void;
+  /** Regenerating: dim the old answer. */
+  busy?: boolean;
+}) {
   const { state } = useStore();
   const [msg, setMsg] = useState('');
   const up = entry.upgrade;
@@ -35,30 +53,38 @@ export default function BuilderResult({ entry, hidden = false, onSave, step }: {
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h2 className="h-section flex items-center gap-2">
             {step && <span className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-600 text-xs font-bold text-white dark:bg-blue-500 dark:text-slate-950">{step}</span>}
-            🎧 Your model answer
+            {title}
           </h2>
           <span className="muted text-xs">{b.level} · ~{b.seconds}s · {b.qtype}</span>
         </div>
+        {controls}
         {hidden ? (
           <div className="rounded-xl border border-dashed border-slate-300 p-6 text-center text-sm text-slate-500 dark:border-slate-700">🙈 Hidden while you practise. No peeking!</div>
         ) : (
-          <>
+          <div className={busy ? 'pointer-events-none opacity-50 transition' : 'transition'}>
             <ListenPlayer text={up.natural} phrases={up.phrases.map((p) => p.phrase)} />
             <div className="mt-4 space-y-2">
-              {b.parts.map((p, i) => (
-                <div key={i} className="flex gap-2 text-sm">
-                  <span className={`chip h-fit shrink-0 ${COLORS[Math.max(0, b.slots.indexOf(p.slot)) % COLORS.length]}`}>{p.slot || b.slots[i] || `Part ${i + 1}`}</span>
-                  <span className="text-slate-600 dark:text-slate-300">{p.text}</span>
-                </div>
-              ))}
+              {b.parts.map((p, i) => {
+                const slot = p.slot || b.slots[i] || `Part ${i + 1}`;
+                const idea = (b.picks[slot] || '').trim();
+                return (
+                  <div key={i} className="flex gap-2 text-sm" data-part={slot}>
+                    <span className={`chip h-fit shrink-0 ${COLORS[Math.max(0, b.slots.indexOf(p.slot)) % COLORS.length]}`}>{slot}</span>
+                    <div className="min-w-0">
+                      {idea && (onIdea ? (
+                        <button className="idea-label mb-0.5 inline-flex max-w-full items-center gap-1 rounded-md px-1 text-left text-[11px] leading-snug text-slate-500 underline decoration-dotted underline-offset-2 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800" onClick={() => onIdea(slot)} title="Swap this idea">
+                          💡 {idea} <Icon name="refresh" className="h-3 w-3 shrink-0" />
+                        </button>
+                      ) : (
+                        <p className="idea-label mb-0.5 text-[11px] leading-snug text-slate-500 dark:text-slate-400">💡 {idea}</p>
+                      ))}
+                      <p className="text-slate-600 dark:text-slate-300">{p.text}</p>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
-            <details className="mt-3 text-sm">
-              <summary className="cursor-pointer text-xs font-medium text-slate-500">Your picks</summary>
-              <ul className="mt-2 space-y-1">
-                {b.slots.map((s) => <li key={s} className="text-slate-600 dark:text-slate-300"><b>{s}:</b> {b.picks[s]}</li>)}
-              </ul>
-            </details>
-          </>
+          </div>
         )}
       </section>
 

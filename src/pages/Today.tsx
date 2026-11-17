@@ -18,6 +18,7 @@ import UpgradeResult from '../components/UpgradeResult';
 import { ShadowCard } from '../components/ShadowPractice';
 import RetryCard from '../components/RetryCard';
 import AnswerBuilder from '../components/AnswerBuilder';
+import SuggestedAnswer, { reusedPhrases } from '../components/SuggestedAnswer';
 import { ErrorBox, Spinner } from '../components/ui';
 import Icon from '../components/Icon';
 
@@ -50,6 +51,7 @@ export default function Today() {
   const [answerClips, setAnswerClips] = useState<AudioClip[]>([]);
   const [attemptClips, setAttemptClips] = useState<AudioClip[]>([]);
   const [answerPron, setAnswerPron] = useState<PronunciationResult>();
+  const [showSuggested, setShowSuggested] = useState(false);
   const [attemptPron, setAttemptPron] = useState<PronunciationResult>();
   const autoTried = useRef(false);
   const [mode, setMode] = useState<'daily' | 'builder'>(() => {
@@ -75,6 +77,7 @@ export default function Today() {
     setAttemptClips([]);
     setAnswerPron(undefined);
     setAttemptPron(undefined);
+    setShowSuggested(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q?.id]);
 
@@ -82,6 +85,7 @@ export default function Today() {
   useEffect(() => { if (!answer.trim()) { setAnswerSamples([]); setAnswerClips([]); setAnswerPron(undefined); } }, [answer]);
   useEffect(() => { if (!attempt.trim()) { setAttemptSamples([]); setAttemptClips([]); setAttemptPron(undefined); } }, [attempt]);
 
+  const reused = useMemo(() => reusedPhrases(q?.suggested, answer), [q?.suggested, answer]);
   const sameAnswer = !!entry && entry.answer === answer.trim();
   // A fresh recording replaces the saved check (until it is checked itself).
   const shownAnswerPron = answerPron || (sameAnswer && !answerClips.length ? entry?.pronunciation : undefined);
@@ -228,6 +232,12 @@ export default function Today() {
                   </div>
                 </div>
               )}
+              <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1">
+                <button className="btn-soft !py-1.5 text-sm" onClick={() => setShowSuggested((v) => !v)} disabled={!ai.hasKey && !q.suggested} aria-expanded={showSuggested}>
+                  💡 {showSuggested ? 'Hide the suggested answer' : 'Show a suggested answer'}
+                </button>
+                {!showSuggested && <span className="muted text-xs">Try it yourself first. Peek if you're stuck.</span>}
+              </div>
             </>
           ) : loadingQ ? (
             <div className="flex items-center gap-3 py-6 text-slate-500"><Spinner /> Thinking of a good question for you…</div>
@@ -240,6 +250,8 @@ export default function Today() {
           {qError && <div className="mt-3"><ErrorBox error={qError} onRetry={newQuestion} /></div>}
         </div>
       </section>
+
+      {q && showSuggested && <SuggestedAnswer q={q} onClose={() => setShowSuggested(false)} />}
 
       {/* Answer card */}
       {q && (
@@ -257,6 +269,14 @@ export default function Today() {
             </button>
             <span className="muted text-xs">{answer.trim() ? `${answer.trim().split(/\s+/).length} words` : ''}</span>
           </div>
+          {reused.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5" data-testid="reused-phrases">
+              <span className="text-xs text-slate-500">💡 Suggested phrases used: {reused.filter((r) => r.used).length}/{reused.length}</span>
+              {reused.map((r) => (
+                <span key={r.phrase} className={`chip ${r.used ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200' : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'}`}>{r.used ? '✓' : '○'} {r.phrase}</span>
+              ))}
+            </div>
+          )}
           {savedMsg && <p className="text-sm text-emerald-600 dark:text-emerald-300">✅ {savedMsg}</p>}
           <ErrorBox error={upError} onRetry={doUpgrade} />
         </section>

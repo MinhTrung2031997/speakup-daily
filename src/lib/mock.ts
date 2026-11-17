@@ -98,7 +98,9 @@ export function mockResponse(task: string, turns: GeminiTurn[]): unknown {
       const slots: string[] = JSON.parse(last.match(/Answer parts in order: (\[.*\])/)?.[1] || '[]');
       const sentences = BUILDER_ANSWER.parts;
       const parts = slots.map((slot, i) => ({ slot, text: i === slots.length - 1 ? sentences.slice(i).join(' ') : sentences[i] || '' })).filter((p) => p.text);
-      return { answer: sentences.join(' '), parts, phrases: BUILDER_ANSWER.phrases };
+      const ideaLabels = ['It really depends', 'Saves time on boring work', 'Writing tests at work', 'Use it, but check it', 'A bit more'];
+      const ideas = /"ideas":/.test(last) ? Object.fromEntries(slots.map((s, i) => [s, ideaLabels[i % ideaLabels.length]])) : undefined;
+      return { answer: sentences.join(' '), parts, phrases: BUILDER_ANSWER.phrases, ...(ideas ? { ideas } : {}) };
     }
     case 'listen-drill':
       return LISTEN_DRILL;

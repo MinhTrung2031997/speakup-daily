@@ -205,6 +205,23 @@ export interface BuilderAnswer {
   answer: string;
   parts: BuilderPart[];
   phrases: PhraseItem[];
+  /** slot -> the idea actually used (the learner's picks, or what the AI chose). */
+  ideas: Record<string, string>;
+}
+
+/** Where the ideas come from: the learner's picks, the AI (auto-pick), or the daily question's idea starters. */
+export type IdeaSource = 'picked' | 'auto' | 'starters';
+
+/** Guess the question type from its wording (no AI call); Opinion when unsure. */
+export function inferQuestionType(q: string): QuestionType {
+  const t = q.toLowerCase();
+  if (/\b(what would you|would you rather|if you (could|had|were|won)|imagine)\b/.test(t)) return 'Hypothetical';
+  if (/\b(tell me about a time|have you ever|the last time|a time when|what happened when|describe a time)\b/.test(t)) return 'Experience';
+  if (/\b(prefer|which is better|which do you|\bvs\.?\b|better:)/.test(t)) return 'Compare';
+  if (/\b(what('s| is| are) .{1,40} like|describe)\b/.test(t)) return 'Describe';
+  if (/\b(do you think|should|is it|are .{1,30} (good|bad)|agree|opinion|worth it|overrated|replace)\b/.test(t)) return 'Opinion';
+  if (/\b(how was your|what are you up to|weekend|any plans|how's your)\b/.test(t)) return 'Small talk';
+  return 'Opinion';
 }
 
 export async function builderAnswer(
@@ -216,21 +233,29 @@ export async function builderAnswer(
   picks: Record<string, string>,
   level: BuilderLevel,
   seconds: BuilderLength,
+  source: IdeaSource = 'picked',
 ): Promise<BuilderAnswer> {
+  // Ideas line by source (EL's notes, Nov 17): picked ideas, idea starters, or the AI chooses (saves the ideas call).
+  const ideasLine =
+    source === 'auto'
+      ? 'The learner skipped picking ideas. For each answer part, choose one natural, realistic idea that fits their profile; still never invent specific events, dates or numbers.'
+      : source === 'starters'
+        ? `The learner was given these idea starters: ${JSON.stringify(picks)}\nThe learner did not pick ideas. Choose the most natural stance yourself and build the answer from the idea starters given.`
+        : `The learner picked these ideas (part -> idea): ${JSON.stringify(picks)}`;
   const prompt = `Learner profile:
 ${profileText(profile)}
 
 Question (${qtype}): ${question}
 Answer parts in order: ${JSON.stringify(slots)}
-The learner picked these ideas (part -> idea): ${JSON.stringify(picks)}
+${ideasLine}
 Level: ${LEVEL_TEXT[level]}. Target length: about ${seconds} seconds of speech (~${LENGTH_WORDS[seconds]} words).
 
-Write a natural SPOKEN answer, like a real person on Discord (contractions, friendly), built ONLY from the picked ideas, in the order of the answer parts. Do not add new opinions, events, dates or numbers; you may add small natural connecting words and a general example.
+Write a natural SPOKEN answer, like a real person on Discord (contractions, friendly), built ONLY from ${source === 'picked' ? 'the picked ideas' : 'these ideas'}, in the order of the answer parts. Do not add new opinions, events, dates or numbers; you may add small natural connecting words and a general example.
 Level guide: Simple = short sentences, B1 words; Natural = B2, a few idioms; Fluent = C1, varied linking and idioms.
 Then:
 - "parts": the answer split into the answer parts (exact sentences from "answer").
-- "phrases": 3-5 natural spoken chunks that appear WORD-FOR-WORD in "answer". Skip basic linkers (for example, because, and, so, but). Each with a short simple meaning and a new short example.
-JSON shape: {"answer": string, "parts": [{"slot": string, "text": string}], "phrases": [{"phrase": string, "meaning": string, "example": string}]}`;
+- "phrases": 3-5 natural spoken chunks that appear WORD-FOR-WORD in "answer". Skip basic linkers (for example, because, and, so, but). Each with a short simple meaning and a new short example.${source === 'picked' ? '' : '\n- "ideas": for each answer part, the idea you used, as a short label (3-8 plain words).'}
+JSON shape: {"answer": string, "parts": [{"slot": string, "text": string}], "phrases": [{"phrase": string, "meaning": string, "example": string}]${source === 'picked' ? '' : ', "ideas": {"<part>": string}'}}`;
   const r = await generateJSON<Record<string, unknown>>(cfg, 'builder-answer', TONE, [{ role: 'user', text: prompt }], 0.7);
   const answer = str(r.answer);
   if (!answer) throw new Error('The AI did not return a model answer. Please try again.');
@@ -239,7 +264,10 @@ JSON shape: {"answer": string, "parts": [{"slot": string, "text": string}], "phr
   const low = answer.toLowerCase();
   const all = phraseList(r.phrases);
   const exact = all.filter((p) => low.includes(p.phrase.toLowerCase().replace(/[.,!?…"']+$/, '')));
-  return { answer, parts, phrases: (exact.length ? exact : all).slice(0, 5) };
+  const rawIdeas = r.ideas && typeof r.ideas === 'object' && !Array.isArray(r.ideas) ? (r.ideas as Record<string, unknown>) : {};
+  const ideaFor = (slot: string) => str(rawIdeas[slot]) || str(Object.entries(rawIdeas).find(([k]) => k.toLowerCase() === slot.toLowerCase())?.[1]);
+  const ideas = Object.fromEntries(slots.map((s) => [s, source === 'picked' ? picks[s] || '' : ideaFor(s)]).filter(([, v]) => v));
+  return { answer, parts, phrases: (exact.length ? exact : all).slice(0, 5), ideas };
 }
 
 // ---------- Listen tab (prompts by EL, tested Nov 16, 2026) ----------

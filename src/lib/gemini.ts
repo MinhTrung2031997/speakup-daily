@@ -115,6 +115,8 @@ export async function generateJSON<T>(
 ): Promise<T> {
   if (cfg.demo || getDemoMode()) {
     await new Promise((r) => setTimeout(r, 450));
+    // Test hook: scripts can count which AI tasks ran in demo mode.
+    (window as unknown as { __aiTasks?: string[] }).__aiTasks?.push(task);
     return mockResponse(task, turns) as T;
   }
   let lastErr: unknown;

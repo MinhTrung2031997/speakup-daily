@@ -205,6 +205,7 @@ export type Database = {
           question: string
           question_date: string
           starters: string[]
+          suggested: Json | null
           topic_id: string | null
           topic_name: string
           updated_at: string
@@ -217,6 +218,7 @@ export type Database = {
           question: string
           question_date?: string
           starters?: string[]
+          suggested?: Json | null
           topic_id?: string | null
           topic_name?: string
           updated_at?: string
@@ -229,6 +231,7 @@ export type Database = {
           question?: string
           question_date?: string
           starters?: string[]
+          suggested?: Json | null
           topic_id?: string | null
           topic_name?: string
           updated_at?: string

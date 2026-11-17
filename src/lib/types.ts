@@ -34,6 +34,8 @@ export interface DailyQuestion {
   topicName: string;
   question: string;
   starters: string[];
+  /** Cached suggested answer ("💡 Show a suggested answer"). */
+  suggested?: SuggestedAnswer;
   createdAt: number;
 }
 
@@ -121,6 +123,22 @@ export interface BuilderInfo {
   seconds: BuilderLength;
   /** The model answer split into its labelled parts. */
   parts: BuilderPart[];
+  /** 'auto' = the AI chose the ideas (shown as labels), 'starters' = built from the daily idea starters. */
+  source?: 'picked' | 'auto' | 'starters';
+}
+
+/** A suggested model answer for a daily question (daily_questions.suggested jsonb, cached). */
+export interface SuggestedAnswer {
+  qtype: QuestionType;
+  slots: string[];
+  /** slot -> idea used */
+  ideas: Record<string, string>;
+  level: BuilderLevel;
+  seconds: BuilderLength;
+  answer: string;
+  parts: BuilderPart[];
+  phrases: PhraseItem[];
+  createdAt: number;
 }
 
 export interface ReviewLog {

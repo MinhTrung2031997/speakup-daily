@@ -1,4 +1,4 @@
-// Answer builder walkthrough + mobile screenshots (390px wide) against the real Supabase project.
+// Answer builder walkthrough (manual "Pick your ideas" path; the auto-pick path is in screenshots-suggested.mjs) + mobile screenshots (390px wide) against the real Supabase project.
 // Needs a confirmed throwaway user. Usage:
 //   npm run build && npx vite preview --host 127.0.0.1 --port 4173 &
 //   TEST_EMAIL=... TEST_PASSWORD=... node scripts/screenshots-builder.mjs          # demo (mock) AI
@@ -82,7 +82,7 @@ const shot = async (name, title) => {
 
 try {
   await page.goto(BASE, { waitUntil: 'networkidle0' });
-  await page.evaluate((real) => { localStorage.clear(); if (!real) localStorage.setItem('speakup.demo', '1'); localStorage.setItem('speakup.todayMode', 'builder'); }, REAL);
+  await page.evaluate((real) => { localStorage.clear(); if (!real) localStorage.setItem('speakup.demo', '1'); localStorage.setItem('speakup.todayMode', 'builder'); localStorage.setItem('speakup.builderPrefs', JSON.stringify({ auto: false })); }, REAL);
   await page.reload({ waitUntil: 'networkidle0' });
   await waitText('Sign in to keep your practice saved');
   await page.type('#email', TEST_EMAIL);
@@ -138,6 +138,7 @@ try {
     return [...sec.querySelectorAll('.chip')].map((c) => c.textContent);
   });
   ok('answer parts labelled', parts.length >= 3, parts.join(' | '));
+  ok('picked ideas shown as labels on the parts', (await page.$$('.idea-label')).length >= 3);
   const marks = await page.evaluate(() => document.querySelectorAll('mark.mark-phrase').length);
   ok('phrases highlighted in the answer', marks >= 2, `${marks} highlights`);
   await shot(`${PREFIX}-4-model-answer`, 'Your model answer');

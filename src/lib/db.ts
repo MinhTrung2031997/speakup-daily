@@ -16,7 +16,7 @@ import { isUuid, todayStr, uid } from './date';
 import { getDemoMode } from './gemini';
 import type {
   AppState, BuilderInfo, ListenSession, ChatFeedback, ChatMessage, ChatSession, DailyQuestion, Entry, FluencyStats, Phrase, Profile,
-  PronunciationResult, RetryResult, ReviewLog, Settings, ShadowAttemptInput, SoundItem, Topic, Upgrade,
+  PronunciationResult, RetryResult, ReviewLog, Settings, ShadowAttemptInput, SoundItem, SuggestedAnswer, Topic, Upgrade,
 } from './types';
 
 export const PRESET_TOPICS: Topic[] = [
@@ -123,6 +123,7 @@ function questionRow(userId: string, q: DailyQuestion, clientId?: string) {
     question: q.question || '(no question)',
     starters: q.starters || [],
     question_date: date(q.date),
+    suggested: q.suggested ? j(q.suggested) : null,
     created_at: ts(q.createdAt),
   };
 }
@@ -275,7 +276,8 @@ export async function loadState(userId: string): Promise<AppState> {
 
   const [topics, questions, answers, fluency, phrases, reviews, chats, messages, activity, listens, sounds, shadowPron] = await Promise.all([
     fetchAll<{ id: string; slug: string; name: string; emoji: string; active: boolean; is_custom: boolean; sort_order: number }>('topics', 'id,slug,name,emoji,active,is_custom,sort_order', 'sort_order'),
-    fetchAll<{ id: string; topic_id: string | null; topic_name: string; question: string; starters: string[]; question_date: string; created_at: string }>('daily_questions', 'id,topic_id,topic_name,question,starters,question_date,created_at', 'created_at'),
+    fetchAll<{ id: string; topic_id: string | null; topic_name: string; question: string; starters: string[]; suggested?: Json; question_date: string; created_at: string }>('daily_questions', 'id,topic_id,topic_name,question,starters,suggested,question_date,created_at', 'created_at')
+      .catch(() => fetchAll<{ id: string; topic_id: string | null; topic_name: string; question: string; starters: string[]; suggested?: Json; question_date: string; created_at: string }>('daily_questions', 'id,topic_id,topic_name,question,starters,question_date,created_at', 'created_at')),
     fetchAll<{ id: string; question_id: string | null; question: string; topic_name: string; answer: string; upgrade: Json; retry: Json; builder: Json; pronunciation: Json; answer_date: string; created_at: string }>('answers', 'id,question_id,question,topic_name,answer,upgrade,retry,builder,pronunciation,answer_date,created_at', 'created_at')
       // Before the pronunciation migration: load without the column.
       .catch(() => fetchAll<{ id: string; question_id: string | null; question: string; topic_name: string; answer: string; upgrade: Json; retry: Json; builder: Json; pronunciation: Json; answer_date: string; created_at: string }>('answers', 'id,question_id,question,topic_name,answer,upgrade,retry,builder,answer_date,created_at', 'created_at')),
@@ -333,7 +335,7 @@ export async function loadState(userId: string): Promise<AppState> {
     },
     questions: questions.map((q) => ({
       id: q.id, date: q.question_date, topicId: (q.topic_id && topicSlugs.get(q.topic_id)) || '', topicName: q.topic_name,
-      question: q.question, starters: q.starters || [], createdAt: ms(q.created_at),
+      question: q.question, starters: q.starters || [], ...(q.suggested ? { suggested: q.suggested as unknown as SuggestedAnswer } : {}), createdAt: ms(q.created_at),
     })),
     entries: answers.map((a) => {
       const retryFlu = flu.get(`${a.id}:retry`);

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../lib/store';
 import { useAIConfig } from '../lib/hooks';
-import { builderAnswer, builderIdeas, builderQuestion, DEFAULT_SLOTS, QUESTION_TYPES, scoreRetry, type IdeaRow } from '../lib/ai';
+import { builderAnswer, builderIdeas, builderQuestion, DEFAULT_SLOTS, QUESTION_TYPES, scoreRetry, type IdeaRow, type IdeaSource } from '../lib/ai';
+import { loadBuilderPrefs, saveBuilderPrefs } from '../lib/builderPrefs';
 import { errorText } from '../lib/gemini';
 import { todayStr, uid } from '../lib/date';
 import { analyzeFluency, withAudioFluency } from '../lib/fluency';
@@ -70,9 +71,22 @@ export default function AnswerBuilder() {
   const [typed, setTyped] = useState<Record<string, string>>({});
   const [loadingIdeas, setLoadingIdeas] = useState(false);
   const [ideaError, setIdeaError] = useState('');
-  // Step 3
-  const [level, setLevel] = useState<BuilderLevel>('Natural');
-  const [seconds, setSeconds] = useState<BuilderLength>(45);
+  // Auto-pick: skip the idea chips; builderAnswer chooses one idea per part (one AI call fewer).
+  const [auto, setAutoPref] = useState(() => loadBuilderPrefs().auto);
+  const [manual, setManual] = useState(false); // "Choose my own ideas" opened for this question
+  const [focusSlot, setFocusSlot] = useState('');
+  const ideasRef = useRef<HTMLDivElement>(null);
+  // Step 3 (last-used level / length are remembered)
+  const [level, setLevelState] = useState<BuilderLevel>(() => loadBuilderPrefs().level);
+  const [seconds, setSecondsState] = useState<BuilderLength>(() => loadBuilderPrefs().seconds);
+  const setLevel = (l: BuilderLevel) => { setLevelState(l); saveBuilderPrefs({ level: l }); };
+  const setSeconds = (n: BuilderLength) => { setSecondsState(n); saveBuilderPrefs({ seconds: n }); };
+  const setAuto = (v: boolean) => {
+    setAutoPref(v);
+    saveBuilderPrefs({ auto: v });
+    if (!v && question && !rows.length && !loadingIdeas) loadIdeas(question, askedType, slots);
+  };
+  const picking = !auto || manual;
   // Step 4
   const [entryId, setEntryId] = useState('');
   const [building, setBuilding] = useState(false);
@@ -108,11 +122,11 @@ export default function AnswerBuilder() {
     const ty = types[Math.floor(Math.random() * types.length)].type;
     if (t) { setTopic(`${t.emoji} ${t.name}`); setCustom(''); }
     setQtype(ty);
-    getQuestion(t ? `${t.emoji} ${t.name}` : topicLabel || 'Daily life', ty);
+    getQuestion(t ? `${t.emoji} ${t.name}` : topicLabel || 'Daily life', ty, auto ? 'auto' : undefined);
   };
 
   const resetAfterQuestion = () => {
-    setRows([]); setPicks({}); setTyped({}); setIdeaError('');
+    setRows([]); setPicks({}); setTyped({}); setIdeaError(''); setManual(false); setFocusSlot('');
     setEntryId(''); setBuildError(''); setPractice(false); setAttempt(''); setSamples([]); setClips([]); setPron(undefined); setScoreError('');
   };
 
@@ -128,7 +142,7 @@ export default function AnswerBuilder() {
     }
   };
 
-  async function getQuestion(t = topicLabel, ty = qtype) {
+  async function getQuestion(t = topicLabel, ty = qtype, then?: 'auto') {
     if (!t) return;
     setLoadingQ(true);
     setQError('');
@@ -142,7 +156,8 @@ export default function AnswerBuilder() {
       setAskedType(ty);
       setAskedTopic(t);
       setPast((p) => [...p, r.question]);
-      loadIdeas(r.question, ty, r.slots);
+      if (then === 'auto') build('auto', { question: r.question, slots: r.slots, qtype: ty, topic: t });
+      else if (!auto) loadIdeas(r.question, ty, r.slots);
     } catch (e) {
       setQError(errorText(e));
     } finally {
@@ -159,19 +174,37 @@ export default function AnswerBuilder() {
     setPicks((p) => ({ ...p, [slot]: v }));
   };
 
-  const build = async () => {
-    if (!pickedAll) return;
+  /** Open "Choose my own ideas": load the idea chips only now (lazily). Prefill with the ideas already used. */
+  const openManual = (slot = '') => {
+    setManual(true);
+    setFocusSlot(slot);
+    const used = entry?.builder?.picks || {};
+    if (Object.keys(used).length) {
+      setPicks((p) => ({ ...used, ...Object.fromEntries(Object.entries(p).filter(([, v]) => v.trim())) }));
+      setTyped((t) => ({ ...used, ...t }));
+    }
+    if (!rows.length && !loadingIdeas) loadIdeas(question, askedType, slots);
+    setTimeout(() => {
+      const el = (slot && ideasRef.current?.querySelector(`[data-slot="${CSS.escape(slot)}"]`)) || ideasRef.current;
+      el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 80);
+  };
+
+  const build = async (source: IdeaSource = 'picked', ctx?: { question: string; slots: string[]; qtype: QuestionType; topic: string }) => {
+    const c = ctx || { question, slots, qtype: askedType, topic: askedTopic };
+    if (source === 'picked' && !pickedAll) return;
     setBuilding(true);
     setBuildError('');
     try {
-      const chosen = Object.fromEntries(slots.map((s) => [s, picks[s].trim()]));
-      const r = await builderAnswer(ai, state.profile, askedType, question, slots, chosen, level, seconds);
+      const chosen = source === 'picked' ? Object.fromEntries(c.slots.map((s) => [s, picks[s].trim()])) : {};
+      const r = await builderAnswer(ai, state.profile, c.qtype, c.question, c.slots, chosen, level, seconds, source);
+      const slots = c.slots, question = c.question, askedTopic = c.topic;
       const parts = r.parts.length ? r.parts : [{ slot: slots[0], text: r.answer }];
-      const builder: BuilderInfo = { qtype: askedType, slots, picks: chosen, level, seconds, parts };
+      const builder: BuilderInfo = { qtype: c.qtype, slots, picks: source === 'picked' ? chosen : r.ideas, level, seconds, parts, source };
       const txt = (i: number) => parts[i]?.text || '';
       const e: Entry = {
-        // Re-building before trying reuses the same History entry.
-        id: entry && !entry.answer ? entry.id : uid(),
+        // Re-building before trying reuses the same History entry (same question only).
+        id: entry && !entry.answer && entry.question === question ? entry.id : uid(),
         date: todayStr(),
         questionId: '',
         question,
@@ -191,6 +224,7 @@ export default function AnswerBuilder() {
       setEntryId(e.id);
       setPractice(false);
       setAttempt('');
+      if (source === 'picked') setManual(false);
       logActivity();
       setTimeout(() => answerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
     } catch (err) {
@@ -242,10 +276,26 @@ export default function AnswerBuilder() {
             ))}
           </div>
         </div>
+        <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 p-2.5 dark:border-slate-700">
+          <input type="checkbox" className="mt-0.5 h-4 w-4 accent-blue-600" checked={auto} onChange={(e) => setAuto(e.target.checked)} data-testid="auto-pick" />
+          <span>
+            <span className="block text-sm font-semibold">✨ Auto-pick ideas</span>
+            <span className="block text-xs text-slate-500 dark:text-slate-400">Skip picking. The AI chooses one natural idea for each part and writes the answer straight away.</span>
+          </span>
+        </label>
         <div className="flex flex-wrap gap-2">
-          <button className="btn-primary" onClick={() => getQuestion()} disabled={!topicLabel || loadingQ}>
-            {loadingQ ? <Spinner /> : <Icon name="sparkles" className="h-4 w-4" />} Get a question
-          </button>
+          {auto ? (
+            <>
+              <button className="btn-primary" onClick={() => getQuestion(topicLabel, qtype, 'auto')} disabled={!topicLabel || loadingQ || building}>
+                {loadingQ || building ? <Spinner /> : <Icon name="sparkles" className="h-4 w-4" />} Generate answer for me
+              </button>
+              <button className="btn-soft" onClick={() => getQuestion()} disabled={!topicLabel || loadingQ}>Just the question</button>
+            </>
+          ) : (
+            <button className="btn-primary" onClick={() => getQuestion()} disabled={!topicLabel || loadingQ}>
+              {loadingQ ? <Spinner /> : <Icon name="sparkles" className="h-4 w-4" />} Get a question
+            </button>
+          )}
           <button className="btn-soft" onClick={surprise} disabled={loadingQ || !topics.length}>🎲 Surprise me</button>
         </div>
         {!topicLabel && <p className="muted text-xs">Pick a topic chip or type one to start.</p>}
@@ -271,7 +321,18 @@ export default function AnswerBuilder() {
         </section>
       )}
 
-      {question && (
+      {question && !picking && (
+        <section className="card flex flex-wrap items-center justify-between gap-2" data-testid="choose-own">
+          <div>
+            <h2 className="h-section text-base">✋ Choose my own ideas</h2>
+            <p className="muted text-xs">Optional. Auto-pick is on, so the AI picks one idea per part.</p>
+          </div>
+          <button className="btn-ghost !px-2.5 !py-1.5 text-xs" onClick={() => openManual()}>Show idea chips</button>
+        </section>
+      )}
+
+      {question && picking && (
+        <div ref={ideasRef} className="scroll-mt-20">
         <Step n={2} title="Pick your ideas" right={rows.length > 0 && <button className="btn-ghost !px-2.5 !py-1.5 text-xs" onClick={() => loadIdeas(question, askedType, slots)} disabled={loadingIdeas}><Icon name="refresh" className="h-4 w-4" /> More ideas</button>}>
           <p className="muted">Tap one idea for each part, or type your own. These are words you already know, ready to use.</p>
           {loadingIdeas ? (
@@ -279,7 +340,7 @@ export default function AnswerBuilder() {
           ) : (
             <div className="space-y-4">
               {rows.map((row, i) => (
-                <div key={row.slot}>
+                <div key={row.slot} data-slot={row.slot} className={`scroll-mt-20 ${focusSlot === row.slot ? 'rounded-xl ring-2 ring-amber-400/70 ring-offset-4 ring-offset-white dark:ring-offset-slate-900' : ''}`}>
                   <p className="mb-1.5 flex items-center gap-2 text-sm font-semibold">
                     <span className="text-xs text-slate-400">{i + 1}.</span> {row.slot}
                     {(picks[row.slot] || '').trim() && <Icon name="check" className="h-4 w-4 text-emerald-600" />}
@@ -293,11 +354,13 @@ export default function AnswerBuilder() {
             </div>
           )}
           <ErrorBox error={ideaError} onRetry={() => loadIdeas(question, askedType, slots)} />
+          {auto && <button className="btn-ghost !px-2.5 !py-1.5 text-xs" onClick={() => setManual(false)}>✨ Back to auto-pick</button>}
         </Step>
+        </div>
       )}
 
-      {rows.length > 0 && (
-        <Step n={3} title="Level and length">
+      {question && (picking ? rows.length > 0 : true) && (
+        <Step n={picking ? 3 : 2} title="Level and length">
           <div className="grid grid-cols-3 gap-2">
             {LEVELS.map((l) => (
               <button key={l.id} onClick={() => setLevel(l.id)} className={`rounded-xl border p-2 text-center transition ${level === l.id ? 'border-blue-600 bg-blue-50 ring-2 ring-blue-500/20 dark:border-blue-400 dark:bg-blue-950/50' : 'border-slate-200 hover:border-blue-300 dark:border-slate-700'}`}>
@@ -310,19 +373,28 @@ export default function AnswerBuilder() {
             <span className="text-sm text-slate-600 dark:text-slate-300">⏱️ Length</span>
             {LENGTHS.map((s) => <button key={s} className={pill(seconds === s)} onClick={() => setSeconds(s)}>{s}s</button>)}
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <button className="btn-primary" onClick={build} disabled={!pickedAll || building}>
-              {building ? <Spinner /> : <Icon name="sparkles" className="h-4 w-4" />} {entry ? 'Build it again' : 'Build my answer'}
-            </button>
-            {!pickedAll && <span className="muted text-xs">Pick an idea for every part ({slots.filter((s) => (picks[s] || '').trim()).length}/{slots.length}).</span>}
-          </div>
-          <ErrorBox error={buildError} onRetry={build} />
+          {picking ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <button className="btn-primary" onClick={() => build('picked')} disabled={!pickedAll || building}>
+                {building ? <Spinner /> : <Icon name="sparkles" className="h-4 w-4" />} {entry ? 'Build it again' : 'Build my answer'}
+              </button>
+              {!pickedAll && <span className="muted text-xs">Pick an idea for every part ({slots.filter((s) => (picks[s] || '').trim()).length}/{slots.length}).</span>}
+            </div>
+          ) : (
+            <div className="flex flex-wrap items-center gap-2">
+              <button className="btn-primary" onClick={() => build('auto')} disabled={building || loadingQ}>
+                {building ? <Spinner /> : <Icon name="sparkles" className="h-4 w-4" />} {entry ? 'Generate again' : 'Generate answer for me'}
+              </button>
+              <span className="muted text-xs">The AI picks the ideas.</span>
+            </div>
+          )}
+          <ErrorBox error={buildError} onRetry={() => build(picking ? 'picked' : 'auto')} />
         </Step>
       )}
 
       {entry?.upgrade && entry.builder && (
         <div ref={answerRef} className="scroll-mt-20 space-y-4">
-          <BuilderResult entry={entry} hidden={practice} onSave={(items) => addPhrases(items, entry.question)} step={4} />
+          <BuilderResult entry={entry} hidden={practice} onSave={(items) => addPhrases(items, entry.question)} step={4} onIdea={entry.question === question ? openManual : undefined} />
           {!practice && <ShadowCard text={entry.upgrade.natural} phrases={entry.upgrade.phrases.map((p) => p.phrase)} hint="Shadow the model answer one sentence at a time: listen, repeat, then compare it with your own voice." />}
 
           <div ref={tryRef}>
