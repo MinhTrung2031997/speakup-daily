@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { useStore, normalizeState } from '../lib/store';
 import RecordingPlayer from '../components/RecordingPlayer';
+import TopicsEditor from '../components/TopicsEditor';
 import { testKey } from '../lib/ai';
 import { errorText } from '../lib/gemini';
 import { useEnglishVoices, speak, ttsSupported, speechRecognitionSupported } from '../lib/speech';
@@ -143,6 +144,15 @@ export default function Settings() {
           <input ref={fileRef} type="file" accept="application/json,.json" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) importFile(f); e.target.value = ''; }} />
         </div>
         {importMsg && <p className="text-sm">{importMsg}</p>}
+      </section>
+
+      <section className="card space-y-3" data-testid="daily-topics">
+        <div>
+          <h2 className="h-section">🗂️ Daily question topics</h2>
+          <p className="muted">Tap a topic to turn it on or off for the daily question. ⭐ favourites come up 3× as often. Each topic has its own set of questions, asked in turn before the AI writes new ones.</p>
+          <p className="mt-1 text-xs text-slate-500">{state.topics.filter((t) => t.active).length} of {state.topics.length} on · {state.topics.filter((t) => t.active && t.favorite).length} favourite</p>
+        </div>
+        <TopicsEditor topics={state.topics} onChange={(topics) => update((s) => ({ ...s, topics }))} />
       </section>
 
       <RecordingsCard />

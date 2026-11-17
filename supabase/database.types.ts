@@ -32,6 +32,7 @@ export type Database = {
           upgrade: Json | null
           pronunciation: Json | null
           user_id: string
+          replay: Json | null
         }
         Insert: {
           answer?: string
@@ -50,6 +51,7 @@ export type Database = {
           upgrade?: Json | null
           pronunciation?: Json | null
           user_id?: string
+          replay?: Json | null
         }
         Update: {
           answer?: string
@@ -68,6 +70,7 @@ export type Database = {
           upgrade?: Json | null
           pronunciation?: Json | null
           user_id?: string
+          replay?: Json | null
         }
         Relationships: [
           {
@@ -210,6 +213,7 @@ export type Database = {
           topic_name: string
           updated_at: string
           user_id: string
+          seed: string | null
         }
         Insert: {
           client_id?: string | null
@@ -223,6 +227,7 @@ export type Database = {
           topic_name?: string
           updated_at?: string
           user_id?: string
+          seed?: string | null
         }
         Update: {
           client_id?: string | null
@@ -236,6 +241,7 @@ export type Database = {
           topic_name?: string
           updated_at?: string
           user_id?: string
+          seed?: string | null
         }
         Relationships: [
           {
@@ -396,6 +402,8 @@ export type Database = {
           sentence: string
           updated_at: string
           user_id: string
+          level: string | null
+          drill: string | null
         }
         Insert: {
           created_at?: string
@@ -407,6 +415,8 @@ export type Database = {
           sentence: string
           updated_at?: string
           user_id?: string
+          level?: string | null
+          drill?: string | null
         }
         Update: {
           created_at?: string
@@ -418,6 +428,8 @@ export type Database = {
           sentence?: string
           updated_at?: string
           user_id?: string
+          level?: string | null
+          drill?: string | null
         }
         Relationships: [
           {
@@ -445,6 +457,8 @@ export type Database = {
           stage: number
           updated_at: string
           user_id: string
+          origin: string
+          learned_by_voice: boolean
         }
         Insert: {
           added_date?: string
@@ -461,6 +475,8 @@ export type Database = {
           stage?: number
           updated_at?: string
           user_id?: string
+          origin?: string
+          learned_by_voice?: boolean
         }
         Update: {
           added_date?: string
@@ -477,6 +493,8 @@ export type Database = {
           stage?: number
           updated_at?: string
           user_id?: string
+          origin?: string
+          learned_by_voice?: boolean
         }
         Relationships: [
           {
@@ -704,6 +722,7 @@ export type Database = {
           sort_order: number
           updated_at: string
           user_id: string
+          favorite: boolean
         }
         Insert: {
           active?: boolean
@@ -716,6 +735,7 @@ export type Database = {
           sort_order?: number
           updated_at?: string
           user_id?: string
+          favorite?: boolean
         }
         Update: {
           active?: boolean
@@ -728,6 +748,7 @@ export type Database = {
           sort_order?: number
           updated_at?: string
           user_id?: string
+          favorite?: boolean
         }
         Relationships: []
       }

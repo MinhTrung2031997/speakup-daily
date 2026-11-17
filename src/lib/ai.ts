@@ -34,8 +34,20 @@ export interface QuestionResult {
   starters: string[];
 }
 
-export async function generateQuestion(cfg: GeminiConfig, profile: Profile, topic: string, past: string[]): Promise<QuestionResult> {
-  const prompt = `Learner profile:
+export async function generateQuestion(cfg: GeminiConfig, profile: Profile, topic: string, past: string[], seed = ''): Promise<QuestionResult> {
+  const prompt = seed
+    ? `Learner profile:
+${profileText(profile)}
+
+Topic: ${topic}
+Seed question: "${seed}"
+
+Use the seed question as today's question. You may lightly personalise the wording to the learner's real life (job, city, hobbies), but keep the same meaning and the same kind of question, keep it 1–2 short sentences, easy B1 words, natural and casual like a Discord chat message. If it already fits, return it unchanged.
+
+Also write 3 short "idea starters": hints (3–8 words each) that help the learner think of WHAT to say, based on their profile. Hints only, not full answers.
+
+JSON shape: {"question": string, "starters": [string, string, string]}`
+    : `Learner profile:
 ${profileText(profile)}
 
 Topic: ${topic}
@@ -49,8 +61,8 @@ ${past.length ? past.slice(-60).map((q) => `  - ${q}`).join('\n') : '  (none yet
 Also write 3 short "idea starters": hints (3–8 words each) that help the learner think of WHAT to say, based on their profile. Hints only, not full answers.
 
 JSON shape: {"question": string, "starters": [string, string, string]}`;
-  const r = await generateJSON<Record<string, unknown>>(cfg, 'question', TONE, [{ role: 'user', text: prompt }], 1.0);
-  const question = str(r.question);
+  const r = await generateJSON<Record<string, unknown>>(cfg, 'question', TONE, [{ role: 'user', text: prompt }], seed ? 0.5 : 1.0);
+  const question = str(r.question) || seed;
   if (!question) throw new Error('The AI did not return a question. Please try again.');
   return { question, starters: arr<string>(r.starters).map((s) => str(s)).filter(Boolean).slice(0, 3) };
 }

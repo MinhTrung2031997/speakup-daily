@@ -14,6 +14,8 @@ export interface Topic {
   emoji: string;
   active: boolean;
   custom?: boolean;
+  /** Favourite: picked 3× as often for the daily question. */
+  favorite?: boolean;
 }
 
 export interface Settings {
@@ -36,6 +38,8 @@ export interface DailyQuestion {
   starters: string[];
   /** Suggested answer versions, oldest first, max 5 (daily_questions.suggested = {...latest, versions}). */
   suggestions?: SuggestedAnswer[];
+  /** The catalogue seed question this was based on (so seeds don't repeat). */
+  seed?: string;
   createdAt: number;
 }
 
@@ -101,7 +105,26 @@ export interface Entry {
   builder?: BuilderInfo;
   /** Pronunciation check of the spoken answer (builder: of the "say it your way" try). */
   pronunciation?: PronunciationResult;
+  /** Set when this answer was a Replay (answering an old daily question again). */
+  replay?: ReplayInfo;
   createdAt: number;
+}
+
+export interface ReplayInfo {
+  /** The first (oldest) answer to the same question, compared against. */
+  firstAnswerId?: string;
+  /** The 2 due phrases he was asked to use. */
+  targets: string[];
+  compare?: {
+    improved: string[];
+    fixNext: string;
+    wordsUsed: string[];
+    structureOld: string;
+    structureNew: string;
+    score: { old: number; new: number };
+    upgradedSentence: string;
+    targets: { phrase: string; level: UsageLevel; fix: string }[];
+  };
 }
 
 export type QuestionType = 'Opinion' | 'Experience' | 'Compare' | 'Describe' | 'Hypothetical' | 'Small talk';
@@ -145,11 +168,18 @@ export interface SuggestedAnswer {
   createdAt: number;
 }
 
+export type UsageLevel = 'natural' | 'understandable' | 'off';
+export type ReviewDrill = 'use' | 'fill' | 'situation' | 'speed' | 'replay';
+export type PhraseOrigin = 'answer' | 'suggested' | 'builder' | 'listen' | 'manual';
+
 export interface ReviewLog {
   date: string;
   sentence: string;
+  /** Back-compat: ok === (level === 'natural'). */
   ok: boolean;
   feedback: string;
+  level?: UsageLevel;
+  drill?: ReviewDrill;
 }
 
 export interface Phrase extends PhraseItem {
@@ -160,6 +190,10 @@ export interface Phrase extends PhraseItem {
   stage: number; // 0..5 (5 = mastered)
   due: string; // YYYY-MM-DD
   reviews: ReviewLog[];
+  /** Where it was collected from (auto-collect vs typed in). */
+  origin?: PhraseOrigin;
+  /** True after the first "natural" grade on a spoken (mic) sentence. */
+  learnedByVoice?: boolean;
 }
 
 export interface ChatMessage {

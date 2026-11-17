@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { groupTopics, nextBankQuestion, topicIdOf } from '../lib/topics';
 import { useStore } from '../lib/store';
 import { useAIConfig } from '../lib/hooks';
 import { builderAnswer, builderIdeas, builderQuestion, DEFAULT_SLOTS, QUESTION_TYPES, LENGTH_LABEL, scoreRetry, type IdeaRow, type IdeaSource } from '../lib/ai';
@@ -152,7 +153,10 @@ export default function AnswerBuilder() {
     try {
       const all = [...state.questions.map((x) => x.question), ...state.entries.filter((e) => e.builder).map((e) => e.question), ...past];
       const plain = t.replace(/^\p{Extended_Pictographic}\uFE0F?\s*/u, '');
-      const r = await builderQuestion(ai, state.profile, plain, ty, all);
+      // Try EL's question bank first (same topic + type, not asked before); the AI writes one only when it runs out.
+      const tid = topicIdOf(topics.find((x) => `${x.emoji} ${x.name}` === t)?.id, t);
+      const bank = tid ? nextBankQuestion(tid, all.map((question) => ({ question })), ty) : undefined;
+      const r = bank ? { question: bank.text, slots: DEFAULT_SLOTS[ty] } : await builderQuestion(ai, state.profile, plain, ty, all);
       setQuestion(r.question);
       setSlots(r.slots);
       setAskedType(ty);
@@ -264,11 +268,18 @@ export default function AnswerBuilder() {
       <Step n={1} title="Pick a topic and question type">
         <div>
           <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">Topic</p>
-          <div className="flex flex-wrap gap-2">
-            {topics.map((t) => {
-              const label = `${t.emoji} ${t.name}`;
-              return <button key={t.id} className={pill(!custom.trim() && topic === label)} onClick={() => { setTopic(label); setCustom(''); }}>{label}</button>;
-            })}
+          <div className="space-y-2" data-testid="builder-topics">
+            {groupTopics(topics).map((g) => (
+              <div key={g.group}>
+                <p className="mb-1 text-[11px] font-medium text-slate-400">{g.group}</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {g.topics.map((t) => {
+                    const label = `${t.emoji} ${t.name}`;
+                    return <button key={t.id} className={pill(!custom.trim() && topic === label)} onClick={() => { setTopic(label); setCustom(''); }}>{label}</button>;
+                  })}
+                </div>
+              </div>
+            ))}
           </div>
           <input className="input mt-2" value={custom} onChange={(e) => setCustom(e.target.value)} placeholder="…or type your own topic (e.g. football, coffee, side projects)" maxLength={60} />
         </div>

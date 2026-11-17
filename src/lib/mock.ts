@@ -14,6 +14,8 @@ export function mockResponse(task: string, turns: GeminiTurn[]): unknown {
   const last = turns[turns.length - 1]?.text || '';
   switch (task) {
     case 'question': {
+      const seed = last.match(/Seed question: "([^"]+)"/)?.[1];
+      if (seed) return { question: seed, starters: ['Think about your work as a developer', 'One real example from last month', 'How you feel about it now'] };
       const q = QUESTIONS[qi % QUESTIONS.length];
       qi++;
       return q;

@@ -10,24 +10,19 @@
  * Items are compared by reference, so every state change must be immutable (it already is).
  */
 import type { Json } from '../../supabase/database.types';
+import { CATALOGUE as TOPIC_CATALOGUE, mergeCatalogue } from './topics';
+
 import { supabase } from './supabase';
 import { cleanPhrase } from './diff';
 import { isUuid, todayStr, uid } from './date';
 import { getDemoMode } from './gemini';
 import type {
+  ReplayInfo,
   AppState, BuilderInfo, ListenSession, ChatFeedback, ChatMessage, ChatSession, DailyQuestion, Entry, FluencyStats, Phrase, Profile,
   PronunciationResult, RecordingItem, RecordingKind, RetryResult, ReviewLog, Settings, ShadowAttemptInput, SoundItem, SuggestedAnswer, Topic, Upgrade,
 } from './types';
 
-export const PRESET_TOPICS: Topic[] = [
-  { id: 'work', name: 'Work & Career', emoji: '💼', active: true },
-  { id: 'tech', name: 'Technology', emoji: '💻', active: true },
-  { id: 'daily', name: 'Daily Life', emoji: '☕', active: true },
-  { id: 'travel', name: 'Travel', emoji: '✈️', active: true },
-  { id: 'opinions', name: 'Opinions & Debates', emoji: '🗣️', active: true },
-  { id: 'hobbies', name: 'Hobbies', emoji: '🎮', active: true },
-  { id: 'food', name: 'Food & Culture', emoji: '🍜', active: true },
-];
+export const PRESET_TOPICS: Topic[] = TOPIC_CATALOGUE.map((t) => ({ id: t.id, name: t.name, emoji: t.emoji, active: true }));
 
 export const DEFAULT_PROFILE: Profile = { name: '', job: '', city: '', hobbies: '', goals: '', level: 'B1–B2 (intermediate)', facts: '' };
 
@@ -38,6 +33,11 @@ const date = (d: string | undefined) => (d && /^\d{4}-\d{2}-\d{2}$/.test(d) ? d 
 const num = (v: unknown, d = 0) => (typeof v === 'number' && Number.isFinite(v) ? v : Number(v) || d);
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 const phraseKey = (p: string) => cleanPhrase(p).toLowerCase();
+type TopicRowIn = { id: string; slug: string; name: string; emoji: string; active: boolean; is_custom: boolean; favorite?: boolean; sort_order: number };
+type QuestionRowIn = { id: string; topic_id: string | null; topic_name: string; question: string; starters: string[]; suggested?: Json; seed?: string | null; question_date: string; created_at: string };
+type AnswerRowIn = { id: string; question_id: string | null; question: string; topic_name: string; answer: string; upgrade: Json; retry: Json; builder: Json; pronunciation: Json; replay?: Json; answer_date: string; created_at: string };
+type PhraseRowIn = { id: string; phrase: string; meaning: string; example: string; source: string; added_date: string; stage: number; due: string; created_at: string; origin?: string; learned_by_voice?: boolean };
+type ReviewRowIn = { phrase_id: string; review_date: string; sentence: string; ok: boolean; feedback: string; level?: 'natural' | 'understandable' | 'off' | null; drill?: ReviewLog['drill'] | null };
 
 function check<T extends { error: { message: string } | null }>(r: T, what: string): T {
   if (r.error) throw new Error(`${what}: ${r.error.message}`);
@@ -133,6 +133,7 @@ function questionRow(userId: string, q: DailyQuestion, clientId?: string) {
     question: q.question || '(no question)',
     starters: q.starters || [],
     question_date: date(q.date),
+    ...(q.seed ? { seed: q.seed.slice(0, 300) } : {}),
     // Backward compatible: the latest version's fields stay at the top level (older app builds read those).
     suggested: q.suggestions?.length ? j({ ...q.suggestions[q.suggestions.length - 1], versions: q.suggestions }) : null,
     created_at: ts(q.createdAt),
@@ -153,6 +154,7 @@ function answerRow(userId: string, e: Entry, questionId: string | null, clientId
     retry: retry ? j(retry) : null,
     retry_score: e.retry ? clamp(Math.round(num(e.retry.score)), 0, 100) : null,
     builder: e.builder ? j(e.builder) : null,
+    ...(e.replay ? { replay: j(e.replay) } : {}),
     pronunciation: e.pronunciation ? j(e.pronunciation) : null,
     input_mode: e.fluency ? 'voice' : 'text',
     answer_date: date(e.date),
@@ -212,11 +214,13 @@ function phraseRow(userId: string, p: Phrase, clientId?: string) {
     due: date(p.due),
     last_reviewed_at: p.reviews?.length ? `${date(p.reviews[p.reviews.length - 1].date)}T12:00:00Z` : null,
     created_at: ts(p.createdAt),
+    origin: p.origin || 'answer',
+    learned_by_voice: !!p.learnedByVoice,
   };
 }
 
 function reviewRows(userId: string, phraseId: string, reviews: ReviewLog[]) {
-  return reviews.map((r) => ({ user_id: userId, phrase_id: phraseId, review_date: date(r.date), sentence: r.sentence || '', ok: !!r.ok, feedback: r.feedback || '' }));
+  return reviews.map((r) => ({ user_id: userId, phrase_id: phraseId, review_date: date(r.date), sentence: r.sentence || '', ok: !!r.ok, feedback: r.feedback || '', level: r.level ?? null, drill: r.drill ?? null }));
 }
 
 function chatRow(userId: string, c: ChatSession, clientId?: string) {
@@ -263,6 +267,7 @@ function topicRows(userId: string, topics: Topic[]) {
     emoji: t.emoji || '💬',
     active: !!t.active,
     is_custom: !!t.custom,
+    favorite: !!t.favorite,
     sort_order: i + 1,
   }));
 }
@@ -286,15 +291,20 @@ export async function loadState(userId: string): Promise<AppState> {
   check(settingsR, 'Load settings');
 
   const [topics, questions, answers, fluency, phrases, reviews, chats, messages, activity, listens, sounds, shadowPron, recordings] = await Promise.all([
-    fetchAll<{ id: string; slug: string; name: string; emoji: string; active: boolean; is_custom: boolean; sort_order: number }>('topics', 'id,slug,name,emoji,active,is_custom,sort_order', 'sort_order'),
-    fetchAll<{ id: string; topic_id: string | null; topic_name: string; question: string; starters: string[]; suggested?: Json; question_date: string; created_at: string }>('daily_questions', 'id,topic_id,topic_name,question,starters,suggested,question_date,created_at', 'created_at')
-      .catch(() => fetchAll<{ id: string; topic_id: string | null; topic_name: string; question: string; starters: string[]; suggested?: Json; question_date: string; created_at: string }>('daily_questions', 'id,topic_id,topic_name,question,starters,question_date,created_at', 'created_at')),
-    fetchAll<{ id: string; question_id: string | null; question: string; topic_name: string; answer: string; upgrade: Json; retry: Json; builder: Json; pronunciation: Json; answer_date: string; created_at: string }>('answers', 'id,question_id,question,topic_name,answer,upgrade,retry,builder,pronunciation,answer_date,created_at', 'created_at')
+    fetchAll<TopicRowIn>('topics', 'id,slug,name,emoji,active,is_custom,favorite,sort_order', 'sort_order')
+      .catch(() => fetchAll<TopicRowIn>('topics', 'id,slug,name,emoji,active,is_custom,sort_order', 'sort_order')),
+    fetchAll<QuestionRowIn>('daily_questions', 'id,topic_id,topic_name,question,starters,suggested,seed,question_date,created_at', 'created_at')
+      .catch(() => fetchAll<QuestionRowIn>('daily_questions', 'id,topic_id,topic_name,question,starters,suggested,question_date,created_at', 'created_at'))
+      .catch(() => fetchAll<QuestionRowIn>('daily_questions', 'id,topic_id,topic_name,question,starters,question_date,created_at', 'created_at')),
+    fetchAll<AnswerRowIn>('answers', 'id,question_id,question,topic_name,answer,upgrade,retry,builder,pronunciation,replay,answer_date,created_at', 'created_at')
+      .catch(() => fetchAll<AnswerRowIn>('answers', 'id,question_id,question,topic_name,answer,upgrade,retry,builder,pronunciation,answer_date,created_at', 'created_at'))
       // Before the pronunciation migration: load without the column.
       .catch(() => fetchAll<{ id: string; question_id: string | null; question: string; topic_name: string; answer: string; upgrade: Json; retry: Json; builder: Json; pronunciation: Json; answer_date: string; created_at: string }>('answers', 'id,question_id,question,topic_name,answer,upgrade,retry,builder,answer_date,created_at', 'created_at')),
     fetchAll<FluencyRow>('fluency_stats', 'answer_id,kind,words,duration_seconds,wpm,filler_count,filler_words,restarts,restart_examples,long_pauses,longest_pause_seconds,tip,created_at', 'created_at'),
-    fetchAll<{ id: string; phrase: string; meaning: string; example: string; source: string; added_date: string; stage: number; due: string; created_at: string }>('phrases', 'id,phrase,meaning,example,source,added_date,stage,due,created_at', 'created_at'),
-    fetchAll<{ phrase_id: string; review_date: string; sentence: string; ok: boolean; feedback: string }>('phrase_reviews', 'phrase_id,review_date,sentence,ok,feedback,created_at', 'created_at'),
+    fetchAll<PhraseRowIn>('phrases', 'id,phrase,meaning,example,source,added_date,stage,due,created_at,origin,learned_by_voice', 'created_at')
+      .catch(() => fetchAll<PhraseRowIn>('phrases', 'id,phrase,meaning,example,source,added_date,stage,due,created_at', 'created_at')),
+    fetchAll<ReviewRowIn>('phrase_reviews', 'phrase_id,review_date,sentence,ok,feedback,level,drill,created_at', 'created_at')
+      .catch(() => fetchAll<ReviewRowIn>('phrase_reviews', 'phrase_id,review_date,sentence,ok,feedback,created_at', 'created_at')),
     fetchAll<{ id: string; topic_name: string; question: string; feedback: Json; session_date: string; created_at: string }>('chat_sessions', 'id,topic_name,question,feedback,session_date,created_at', 'created_at'),
     fetchAll<{ session_id: string; position: number; role: string; text: string; nudge: string | null }>('chat_messages', 'session_id,position,role,text,nudge', 'position'),
     fetchAll<{ activity_date: string; seconds_spoken: number; practice_count: number }>('daily_activity', 'activity_date,seconds_spoken,practice_count', 'activity_date'),
@@ -311,13 +321,23 @@ export async function loadState(userId: string): Promise<AppState> {
   topicIds.clear();
   topicSlugs.clear();
   topics.forEach((t) => rememberTopic(t.slug, t.id));
+  // Bring saved topics up to the current catalogue (new topics added, old preset names renamed; on/off + favourite kept).
+  const savedTopics: Topic[] = topics.map((t) => ({ id: t.slug, name: t.name, emoji: t.emoji, active: t.active, ...(t.is_custom ? { custom: true } : {}), ...(t.favorite ? { favorite: true } : {}) }));
+  const mergedTopics = mergeCatalogue(savedTopics);
+  const sig = (l: Topic[]) => l.map((t) => `${t.id}|${t.name}|${t.emoji}|${t.active}|${!!t.custom}|${!!t.favorite}`).join('\n');
+  if (sig(savedTopics) !== sig(mergedTopics)) {
+    try {
+      const r = await supabase.from('topics').upsert(topicRows(userId, mergedTopics), { onConflict: 'user_id,slug' }).select('id,slug');
+      r.data?.forEach((t) => rememberTopic(t.slug, t.id));
+    } catch { /* the next normal save retries */ }
+  }
 
   const p = profileR.data;
   const s = settingsR.data;
   const flu = new Map<string, FluencyStats>();
   fluency.forEach((f) => f.answer_id && (f.kind === 'answer' || f.kind === 'retry') && flu.set(`${f.answer_id}:${f.kind}`, fluencyFromRow(f)));
   const revBy = new Map<string, ReviewLog[]>();
-  reviews.forEach((r) => revBy.set(r.phrase_id, [...(revBy.get(r.phrase_id) || []), { date: r.review_date, sentence: r.sentence, ok: r.ok, feedback: r.feedback }]));
+  reviews.forEach((r) => revBy.set(r.phrase_id, [...(revBy.get(r.phrase_id) || []), { date: r.review_date, sentence: r.sentence, ok: r.ok, feedback: r.feedback, ...(r.level ? { level: r.level } : {}), ...(r.drill ? { drill: r.drill } : {}) }]));
   const msgBy = new Map<string, ChatMessage[]>();
   messages.forEach((m) => {
     const list = msgBy.get(m.session_id) || [];
@@ -335,7 +355,7 @@ export async function loadState(userId: string): Promise<AppState> {
   return {
     version: 1,
     profile: p ? { name: p.name, job: p.job, city: p.city, hobbies: p.hobbies, goals: p.goals, level: p.level, facts: p.facts } : { ...DEFAULT_PROFILE },
-    topics: topics.map((t) => ({ id: t.slug, name: t.name, emoji: t.emoji, active: t.active, ...(t.is_custom ? { custom: true } : {}) })),
+    topics: mergedTopics,
     settings: {
       model: s?.model || 'gemini-flash-lite-latest',
       dark: !!s?.dark,
@@ -347,7 +367,7 @@ export async function loadState(userId: string): Promise<AppState> {
     },
     questions: questions.map((q) => ({
       id: q.id, date: q.question_date, topicId: (q.topic_id && topicSlugs.get(q.topic_id)) || '', topicName: q.topic_name,
-      question: q.question, starters: q.starters || [], ...(suggestionsFrom(q.suggested, q.id).length ? { suggestions: suggestionsFrom(q.suggested, q.id) } : {}), createdAt: ms(q.created_at),
+      question: q.question, starters: q.starters || [], ...(q.seed ? { seed: q.seed } : {}), ...(suggestionsFrom(q.suggested, q.id).length ? { suggestions: suggestionsFrom(q.suggested, q.id) } : {}), createdAt: ms(q.created_at),
     })),
     entries: answers.map((a) => {
       const retryFlu = flu.get(`${a.id}:retry`);
@@ -359,6 +379,7 @@ export async function loadState(userId: string): Promise<AppState> {
         ...(retry ? { retry } : {}),
         ...(fl ? { fluency: fl } : {}),
         ...(a.builder ? { builder: a.builder as unknown as BuilderInfo } : {}),
+        ...((a as { replay?: Json }).replay ? { replay: (a as { replay?: Json }).replay as unknown as ReplayInfo } : {}),
         ...(a.pronunciation ? { pronunciation: a.pronunciation as unknown as PronunciationResult } : {}),
         createdAt: ms(a.created_at),
       } as Entry;
@@ -367,6 +388,7 @@ export async function loadState(userId: string): Promise<AppState> {
     phrases: phrases.reverse().map((x) => ({
       id: x.id, phrase: x.phrase, meaning: x.meaning, example: x.example, source: x.source, createdAt: ms(x.created_at),
       addedDate: x.added_date, stage: x.stage, due: x.due, reviews: revBy.get(x.id) || [],
+      origin: (x.origin as Phrase['origin']) || 'answer', learnedByVoice: !!x.learned_by_voice,
     })),
     chats: chats.map((c) => ({
       id: c.id, date: c.session_date, topicName: c.topic_name, question: c.question, messages: msgBy.get(c.id) || [],

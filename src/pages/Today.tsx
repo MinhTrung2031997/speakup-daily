@@ -20,6 +20,7 @@ import RetryCard from '../components/RetryCard';
 import AnswerBuilder from '../components/AnswerBuilder';
 import SuggestedAnswer, { reusedPhrases } from '../components/SuggestedAnswer';
 import { RecordingList } from '../components/RecordingPlayer';
+import { nextSeed, pickDailyTopic } from '../lib/topics';
 import { ErrorBox, Spinner } from '../components/ui';
 import Icon from '../components/Icon';
 
@@ -114,16 +115,16 @@ export default function Today() {
     setLoadingQ(true);
     setQError('');
     try {
-      const active = state.topics.filter((t) => t.active);
-      const pool = active.length ? active : state.topics;
       const lastTopic = state.questions[state.questions.length - 1]?.topicId;
-      const choices = pool.length > 1 ? pool.filter((t) => t.id !== lastTopic) : pool;
-      const topic = choices[Math.floor(Math.random() * choices.length)];
+      const topic = pickDailyTopic(state.topics, lastTopic, Math.random, state.questions);
+      if (!topic) throw new Error('Turn on at least one topic in Settings.');
       const past = state.questions.map((x) => x.question);
       const seen = new Set(past.map(normQ));
-      let r = await generateQuestion(ai, state.profile, topic.name, past);
-      if (seen.has(normQ(r.question))) r = await generateQuestion(ai, state.profile, topic.name, [...past, r.question]);
-      const dq: DailyQuestion = { id: uid(), date: todayStr(), topicId: topic.id, topicName: `${topic.emoji} ${topic.name}`, question: r.question, starters: r.starters, createdAt: Date.now() };
+      // Rotate through the topic's seed questions first (no repeats), then let the AI write new ones.
+      const seed = nextSeed(topic.id, state.questions);
+      let r = await generateQuestion(ai, state.profile, topic.name, past, seed);
+      if (!seed && seen.has(normQ(r.question))) r = await generateQuestion(ai, state.profile, topic.name, [...past, r.question]);
+      const dq: DailyQuestion = { id: uid(), date: todayStr(), topicId: topic.id, topicName: `${topic.emoji} ${topic.name}`, question: r.question, starters: r.starters, ...(seed ? { seed } : {}), createdAt: Date.now() };
       update((s) => ({ ...s, questions: [...s.questions, dq] }));
     } catch (e) {
       setQError(errorText(e));

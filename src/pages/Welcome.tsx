@@ -49,7 +49,7 @@ export default function Welcome() {
               <h2 className="text-lg font-semibold">🧭 Pick your topics</h2>
               <p className="muted mt-1">Your daily question will come from the topics you turn on.</p>
             </div>
-            <TopicsEditor topics={topics} onChange={setTopics} />
+            <TopicsEditor topics={topics} onChange={setTopics} showFavorites={false} />
             <div className="flex justify-between gap-2">
               <button className="btn-ghost" onClick={() => setStep(1)}>Back</button>
               <button className="btn-primary" onClick={finish}>Start speaking 🚀</button>

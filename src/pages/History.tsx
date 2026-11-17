@@ -1,3 +1,4 @@
+import { groupTopics, topicIdOf } from '../lib/topics';
 import { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import SuggestedAnswer, { reusedPhrases } from '../components/SuggestedAnswer';
@@ -28,27 +29,31 @@ export default function History() {
   const [date, setDate] = useState('');
   const [open, setOpen] = useState<string | null>(null);
 
-  const topics = useMemo(() => Array.from(new Set([...state.entries.map((e) => e.topicName), ...state.chats.map((c) => c.topicName), ...state.listens.map((l) => l.topic)])).sort(), [state.entries, state.chats, state.listens]);
+  // Topic filter: every topic in the catalogue (grouped), plus any old/custom topic names found in the data.
+  // Old rows ("☕ Daily Life", "Hobbies", ...) map onto the new catalogue topics.
+  const qTopic = useMemo(() => new Map(state.questions.map((x) => [x.id, x.topicId])), [state.questions]);
+  const keyOf = (id: string | undefined, name: string | undefined) => topicIdOf(id, name) || `name:${(name || '').trim()}`;
+  const match = (id: string | undefined, name: string | undefined) => !topic || keyOf(id, name) === topic;
 
   const entries = useMemo(() => {
     const q = query.toLowerCase();
     return [...state.entries]
       .sort((a, b) => b.createdAt - a.createdAt)
-      .filter((e) => (!topic || e.topicName === topic) && (!date || e.date === date) && (!q || [e.question, e.answer, e.upgrade?.natural || ''].some((t) => t.toLowerCase().includes(q))));
+      .filter((e) => match(qTopic.get(e.questionId), e.topicName) && (!date || e.date === date) && (!q || [e.question, e.answer, e.upgrade?.natural || ''].some((t) => t.toLowerCase().includes(q))));
   }, [state.entries, query, topic, date]);
 
   const chats = useMemo(() => {
     const q = query.toLowerCase();
     return [...state.chats]
       .sort((a, b) => b.createdAt - a.createdAt)
-      .filter((c) => c.messages.length > 1 && (!topic || c.topicName === topic) && (!date || c.date === date) && (!q || c.messages.some((m) => m.text.toLowerCase().includes(q))));
+      .filter((c) => c.messages.length > 1 && match(undefined, c.topicName) && (!date || c.date === date) && (!q || c.messages.some((m) => m.text.toLowerCase().includes(q))));
   }, [state.chats, query, topic, date]);
 
   const listens = useMemo(() => {
     const q = query.toLowerCase();
     return [...state.listens]
       .sort((a, b) => b.createdAt - a.createdAt)
-      .filter((l) => (!topic || l.topic === topic) && (!date || l.date === date) && (!q || [l.drill.title, ...l.drill.lines.map((x) => x.text)].some((t) => t.toLowerCase().includes(q))));
+      .filter((l) => match(undefined, l.topic) && (!date || l.date === date) && (!q || [l.drill.title, ...l.drill.lines.map((x) => x.text)].some((t) => t.toLowerCase().includes(q))));
   }, [state.listens, query, topic, date]);
 
   const starredAnswers = useMemo(() => new Set(state.recordings.filter((r) => r.starred && r.answerId).map((r) => r.answerId!)), [state.recordings]);
@@ -61,8 +66,25 @@ export default function History() {
       .map((dq) => ({ q: dq, answers: state.entries.filter((e) => !e.builder && (e.questionId === dq.id || (!e.questionId && e.question === dq.question))).sort((a, b) => a.createdAt - b.createdAt) }))
       .filter(({ q: dq, answers }) => answers.length > 0 || (dq.suggestions?.length || 0) > 0)
       .filter(({ answers }) => dailyFilter === 'all' || (dailyFilter === 'starred' ? answers.some((e) => starredAnswers.has(e.id)) : dailyFilter === 'answered' ? answers.length > 0 : answers.length === 0))
-      .filter(({ q: dq, answers }) => (!topic || dq.topicName === topic) && (!date || dq.date === date) && (!q || [dq.question, ...answers.map((e) => e.answer), ...(dq.suggestions || []).map((v) => v.answer)].some((t) => t.toLowerCase().includes(q))));
+      .filter(({ q: dq, answers }) => match(dq.topicId, dq.topicName) && (!date || dq.date === date) && (!q || [dq.question, ...answers.map((e) => e.answer), ...(dq.suggestions || []).map((v) => v.answer)].some((t) => t.toLowerCase().includes(q))));
   }, [state.questions, state.entries, query, topic, date, dailyFilter, starredAnswers]);
+
+  // Counts for the current tab (ignoring the topic filter itself).
+  const topicOptions = useMemo(() => {
+    const keys: string[] =
+      tab === 'daily' ? state.questions.filter((dq) => (dq.suggestions?.length || 0) > 0 || state.entries.some((e) => e.questionId === dq.id)).map((dq) => keyOf(dq.topicId, dq.topicName))
+      : tab === 'answers' ? state.entries.map((e) => keyOf(qTopic.get(e.questionId), e.topicName))
+      : tab === 'chats' ? state.chats.filter((c) => c.messages.length > 1).map((c) => keyOf(undefined, c.topicName))
+      : state.listens.map((l) => keyOf(undefined, l.topic));
+    const counts = new Map<string, number>();
+    keys.forEach((k) => counts.set(k, (counts.get(k) || 0) + 1));
+    const groups = groupTopics(state.topics).map((g) => ({ group: g.group, items: g.topics.map((t) => ({ key: t.id, label: `${t.emoji} ${t.name}`, n: counts.get(t.id) || 0 })) }));
+    const known = new Set(state.topics.map((t) => t.id));
+    const other = [...counts.entries()].filter(([k]) => !known.has(k) && k !== 'name:').map(([k, n]) => ({ key: k, label: k.slice(5), n }));
+    if (other.length) groups.push({ group: 'Other', items: other.sort((a, b) => a.label.localeCompare(b.label)) });
+    return groups;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, state.questions, state.entries, state.chats, state.listens, state.topics, qTopic]);
 
   const unanswered = state.questions.filter((qq) => !state.entries.some((e) => e.questionId === qq.id)).length;
 
@@ -80,9 +102,13 @@ export default function History() {
           <Icon name="search" className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
           <input className="input !pl-9" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search questions and answers…" />
         </div>
-        <select className="input sm:!w-48" value={topic} onChange={(e) => setTopic(e.target.value)}>
+        <select className="input sm:!w-56" value={topic} aria-label="Filter by topic" data-testid="topic-filter" onChange={(e) => setTopic(e.target.value)}>
           <option value="">All topics</option>
-          {topics.map((t) => <option key={t}>{t}</option>)}
+          {topicOptions.map((g) => (
+            <optgroup key={g.group} label={g.group}>
+              {g.items.map((t) => <option key={t.key} value={t.key}>{t.label} ({t.n})</option>)}
+            </optgroup>
+          ))}
         </select>
         <input type="date" className="input sm:!w-44" value={date} onChange={(e) => setDate(e.target.value)} aria-label="Filter by date" />
       </div>
