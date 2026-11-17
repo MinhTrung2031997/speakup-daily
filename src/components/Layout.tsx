@@ -15,7 +15,7 @@ const NAV = [
 
 export default function Layout() {
   const { state, update, saveError } = useStore();
-  const due = state.phrases.filter((p) => isDue(p)).length;
+  const due = state.phrases.filter((p) => isDue(p)).length + state.sounds.filter((x) => isDue(x)).length;
   const toggleDark = () => update((s) => ({ ...s, settings: { ...s.settings, dark: !s.settings.dark } }));
   const demo = state.settings.demo;
 

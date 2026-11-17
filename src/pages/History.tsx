@@ -6,6 +6,7 @@ import UpgradeResult from '../components/UpgradeResult';
 import BuilderResult from '../components/BuilderResult';
 import { ShadowCard } from '../components/ShadowPractice';
 import FluencyCard from '../components/FluencyCard';
+import PronunciationCard from '../components/PronunciationCard';
 import { Empty, PageTitle } from '../components/ui';
 import { FeedbackCard } from './Chat';
 import { ListenBadges, RetellCard } from './Listen';
@@ -138,6 +139,7 @@ function EntryRow({ e, open, onToggle }: { e: Entry; open: boolean; onToggle: ()
       {open && (
         <div className="border-t border-slate-200 p-3 dark:border-slate-800 sm:p-4">
           {e.fluency && <div className="mb-4"><FluencyCard stats={e.fluency} title="📈 Fluency (your answer)" /></div>}
+          {e.pronunciation && <div className="mb-4"><PronunciationCard clips={[]} transcript={e.answer} result={e.pronunciation} /></div>}
           {e.builder && e.upgrade ? <BuilderResult entry={e} onSave={(items) => addPhrases(items, e.question)} /> : e.upgrade ? <UpgradeResult entry={e} /> : <p className="muted">No upgrade for this answer.</p>}
           {e.upgrade && <div className="mt-4"><ShadowCard text={e.upgrade.natural} phrases={e.upgrade.phrases.map((p) => p.phrase)} /></div>}
           {e.retry && (
@@ -145,6 +147,7 @@ function EntryRow({ e, open, onToggle }: { e: Entry; open: boolean; onToggle: ()
               <p className="font-semibold">{e.builder ? 'Say it your way' : 'Say it again'}: {e.retry.score}/100</p>
               <p className="mt-1 text-slate-600 dark:text-slate-300">“{e.retry.attempt}”</p>
               {e.retry.tip && <p className="mt-1">💡 {e.retry.tip}</p>}
+              {e.retry.pronunciation && <div className="mt-2"><PronunciationCard clips={[]} transcript={e.retry.attempt} result={e.retry.pronunciation} title="🗣️ Pronunciation (your try)" /></div>}
             </div>
           )}
         </div>

@@ -16,7 +16,7 @@ import { isUuid, todayStr, uid } from './date';
 import { getDemoMode } from './gemini';
 import type {
   AppState, BuilderInfo, ListenSession, ChatFeedback, ChatMessage, ChatSession, DailyQuestion, Entry, FluencyStats, Phrase, Profile,
-  RetryResult, ReviewLog, Settings, ShadowAttemptInput, Topic, Upgrade,
+  PronunciationResult, RetryResult, ReviewLog, Settings, ShadowAttemptInput, SoundItem, Topic, Upgrade,
 } from './types';
 
 export const PRESET_TOPICS: Topic[] = [
@@ -141,6 +141,7 @@ function answerRow(userId: string, e: Entry, questionId: string | null, clientId
     retry: retry ? j(retry) : null,
     retry_score: e.retry ? clamp(Math.round(num(e.retry.score)), 0, 100) : null,
     builder: e.builder ? j(e.builder) : null,
+    pronunciation: e.pronunciation ? j(e.pronunciation) : null,
     input_mode: e.fluency ? 'voice' : 'text',
     answer_date: date(e.date),
     created_at: ts(e.createdAt),
@@ -162,8 +163,26 @@ function listenRow(userId: string, l: ListenSession) {
     dictation_accuracy: l.dictationAccuracy == null ? null : clamp(Math.round(num(l.dictationAccuracy)), 0, 100),
     retell: l.retell ? j((({ fluency: _f, ...rest }) => rest)(l.retell)) : null,
     retell_score: l.retell ? clamp(Math.round(num(l.retell.score)), 0, 100) : null,
+    pronunciation: l.pronunciation ? j(l.pronunciation) : null,
     session_date: date(l.date),
     created_at: ts(l.createdAt),
+  };
+}
+
+function soundRow(userId: string, x: SoundItem) {
+  return {
+    id: x.id,
+    user_id: userId,
+    word: (x.word || '?').slice(0, 80),
+    note: (x.note || '').slice(0, 300),
+    ipa: (x.ipa || '').slice(0, 80),
+    issue: (x.issue || '').slice(0, 40),
+    heard: (x.heard || '').slice(0, 80),
+    times_seen: Math.max(0, Math.round(num(x.timesSeen, 1))),
+    last_seen: date(x.lastSeen),
+    stage: clamp(Math.round(num(x.stage)), 0, 5),
+    next_review: /^\d{4}-\d{2}-\d{2}$/.test(x.due) ? x.due : todayStr(),
+    created_at: ts(x.createdAt),
   };
 }
 
@@ -254,19 +273,25 @@ export async function loadState(userId: string): Promise<AppState> {
   check(profileR, 'Load profile');
   check(settingsR, 'Load settings');
 
-  const [topics, questions, answers, fluency, phrases, reviews, chats, messages, activity, listens] = await Promise.all([
+  const [topics, questions, answers, fluency, phrases, reviews, chats, messages, activity, listens, sounds, shadowPron] = await Promise.all([
     fetchAll<{ id: string; slug: string; name: string; emoji: string; active: boolean; is_custom: boolean; sort_order: number }>('topics', 'id,slug,name,emoji,active,is_custom,sort_order', 'sort_order'),
     fetchAll<{ id: string; topic_id: string | null; topic_name: string; question: string; starters: string[]; question_date: string; created_at: string }>('daily_questions', 'id,topic_id,topic_name,question,starters,question_date,created_at', 'created_at'),
-    fetchAll<{ id: string; question_id: string | null; question: string; topic_name: string; answer: string; upgrade: Json; retry: Json; builder: Json; answer_date: string; created_at: string }>('answers', 'id,question_id,question,topic_name,answer,upgrade,retry,builder,answer_date,created_at', 'created_at'),
+    fetchAll<{ id: string; question_id: string | null; question: string; topic_name: string; answer: string; upgrade: Json; retry: Json; builder: Json; pronunciation: Json; answer_date: string; created_at: string }>('answers', 'id,question_id,question,topic_name,answer,upgrade,retry,builder,pronunciation,answer_date,created_at', 'created_at')
+      // Before the pronunciation migration: load without the column.
+      .catch(() => fetchAll<{ id: string; question_id: string | null; question: string; topic_name: string; answer: string; upgrade: Json; retry: Json; builder: Json; pronunciation: Json; answer_date: string; created_at: string }>('answers', 'id,question_id,question,topic_name,answer,upgrade,retry,builder,answer_date,created_at', 'created_at')),
     fetchAll<FluencyRow>('fluency_stats', 'answer_id,kind,words,duration_seconds,wpm,filler_count,filler_words,restarts,restart_examples,long_pauses,longest_pause_seconds,tip,created_at', 'created_at'),
     fetchAll<{ id: string; phrase: string; meaning: string; example: string; source: string; added_date: string; stage: number; due: string; created_at: string }>('phrases', 'id,phrase,meaning,example,source,added_date,stage,due,created_at', 'created_at'),
     fetchAll<{ phrase_id: string; review_date: string; sentence: string; ok: boolean; feedback: string }>('phrase_reviews', 'phrase_id,review_date,sentence,ok,feedback,created_at', 'created_at'),
     fetchAll<{ id: string; topic_name: string; question: string; feedback: Json; session_date: string; created_at: string }>('chat_sessions', 'id,topic_name,question,feedback,session_date,created_at', 'created_at'),
     fetchAll<{ session_id: string; position: number; role: string; text: string; nudge: string | null }>('chat_messages', 'session_id,position,role,text,nudge', 'position'),
     fetchAll<{ activity_date: string; seconds_spoken: number; practice_count: number }>('daily_activity', 'activity_date,seconds_spoken,practice_count', 'activity_date'),
-    fetchAll<{ id: string; topic: string; accent: string; speed: number; level: string; drill: Json; answers: Json; question_score: number | null; dictation_text: string | null; dictation_accuracy: number | null; retell: Json; session_date: string; created_at: string }>(
-      'listening_sessions', 'id,topic,accent,speed,level,drill,answers,question_score,dictation_text,dictation_accuracy,retell,session_date,created_at', 'created_at',
+    fetchAll<{ id: string; topic: string; accent: string; speed: number; level: string; drill: Json; answers: Json; question_score: number | null; dictation_text: string | null; dictation_accuracy: number | null; retell: Json; pronunciation?: Json; session_date: string; created_at: string }>(
+      'listening_sessions', 'id,topic,accent,speed,level,drill,answers,question_score,dictation_text,dictation_accuracy,retell,pronunciation,session_date,created_at', 'created_at',
     ).catch(() => []), // the table may not exist yet on an old database; Listen still works for new sessions
+    fetchAll<{ id: string; word: string; note: string; ipa: string; issue: string; heard: string; times_seen: number; last_seen: string; stage: number; next_review: string; created_at: string }>(
+      'pronunciation_items', 'id,word,note,ipa,issue,heard,times_seen,last_seen,stage,next_review,created_at', 'created_at',
+    ).catch(() => []),
+    fetchAll<{ id: string; created_at: string; pron_score: unknown }>('shadowing_attempts', 'id,created_at,pron_score:pronunciation->score', 'created_at').catch(() => []),
   ]);
 
   topicIds.clear();
@@ -320,6 +345,7 @@ export async function loadState(userId: string): Promise<AppState> {
         ...(retry ? { retry } : {}),
         ...(fl ? { fluency: fl } : {}),
         ...(a.builder ? { builder: a.builder as unknown as BuilderInfo } : {}),
+        ...(a.pronunciation ? { pronunciation: a.pronunciation as unknown as PronunciationResult } : {}),
         createdAt: ms(a.created_at),
       } as Entry;
     }),
@@ -341,8 +367,17 @@ export async function loadState(userId: string): Promise<AppState> {
       ...(l.dictation_text != null ? { dictationText: l.dictation_text } : {}),
       ...(l.dictation_accuracy != null ? { dictationAccuracy: l.dictation_accuracy } : {}),
       ...(l.retell ? { retell: l.retell as unknown as ListenSession['retell'] } : {}),
+      ...(l.pronunciation ? { pronunciation: l.pronunciation as unknown as PronunciationResult } : {}),
       createdAt: ms(l.created_at),
     })),
+    // "Sounds to fix", newest first like phrases.
+    sounds: sounds.reverse().map((x) => ({
+      id: x.id, word: x.word, note: x.note, ipa: x.ipa, issue: x.issue, heard: x.heard, timesSeen: x.times_seen,
+      lastSeen: x.last_seen, stage: x.stage, due: x.next_review, createdAt: ms(x.created_at),
+    })),
+    shadowPron: shadowPron
+      .filter((x) => x.pron_score != null && Number.isFinite(Number(x.pron_score)))
+      .map((x) => ({ id: x.id, score: Number(x.pron_score), createdAt: ms(x.created_at) })),
     speakingLog,
     activityLog,
   };
@@ -450,6 +485,16 @@ export async function syncChanges(userId: string, prev: AppState, next: AppState
     for (const c of chunks(gone)) check(await supabase.from('listening_sessions').delete().in('id', c), 'Delete listening');
   }
 
+  // Sounds to fix
+  if (prev.sounds !== next.sounds) {
+    const old = byId(prev.sounds);
+    const ids = new Set(next.sounds.map((x) => x.id));
+    const gone = prev.sounds.filter((x) => !ids.has(x.id)).map((x) => x.id);
+    for (const c of chunks(gone)) check(await supabase.from('pronunciation_items').delete().in('id', c), 'Delete sounds');
+    const changed = next.sounds.filter((x) => old.get(x.id) !== x);
+    for (const c of chunks(changed)) check(await supabase.from('pronunciation_items').upsert(c.map((x) => soundRow(userId, x))), 'Save sounds');
+  }
+
   // Daily activity (streaks, minutes spoken)
   if (prev.speakingLog !== next.speakingLog || prev.activityLog !== next.activityLog) {
     const days = new Set([...Object.keys(next.speakingLog), ...Object.keys(next.activityLog)]);
@@ -466,7 +511,7 @@ export async function syncChanges(userId: string, prev: AppState, next: AppState
 const EXT: Record<string, string> = { 'audio/webm': 'webm', 'audio/ogg': 'ogg', 'audio/mp4': 'm4a', 'audio/mpeg': 'mp3', 'audio/wav': 'wav', 'audio/aac': 'aac' };
 
 export async function saveShadowAttempt(userId: string, a: ShadowAttemptInput): Promise<void> {
-  const id = uid();
+  const id = a.id && isUuid(a.id) ? a.id : uid();
   let recording_path: string | null = null;
   if (a.audioUrl) {
     try {
@@ -493,6 +538,11 @@ export async function saveShadowAttempt(userId: string, a: ShadowAttemptInput): 
     duration_seconds: clamp(num(a.seconds), 0, 99999),
     recording_path,
   }), 'Save shadowing attempt');
+}
+
+/** Attach a pronunciation check to a saved shadowing attempt. */
+export async function saveShadowPronunciation(id: string, p: PronunciationResult): Promise<void> {
+  check(await supabase.from('shadowing_attempts').update({ pronunciation: j(p) }).eq('id', id), 'Save shadowing pronunciation');
 }
 
 // ---------------------------------------------------------------------------
@@ -628,7 +678,7 @@ export async function importLegacy(userId: string, legacy: AppState, current: Ap
 // ---------------------------------------------------------------------------
 export async function resetAll(userId: string): Promise<void> {
   // Children cascade: answers -> fluency_stats, phrases -> phrase_reviews, chat_sessions -> chat_messages.
-  for (const t of ['shadowing_attempts', 'fluency_stats', 'answers', 'phrases', 'chat_sessions', 'daily_questions', 'daily_activity', 'listening_sessions'] as const) {
+  for (const t of ['shadowing_attempts', 'fluency_stats', 'answers', 'phrases', 'chat_sessions', 'daily_questions', 'daily_activity', 'listening_sessions', 'pronunciation_items'] as const) {
     check(await supabase.from(t).delete().eq('user_id', userId), `Delete ${t}`);
   }
   check(await supabase.from('topics').delete().eq('user_id', userId).eq('is_custom', true), 'Delete custom topics');

@@ -102,6 +102,8 @@ export function mockResponse(task: string, turns: GeminiTurn[]): unknown {
     }
     case 'listen-drill':
       return LISTEN_DRILL;
+    case 'pronunciation':
+      return mockPronunciation(last);
     case 'listen-retell': {
       const retell = (last.split('60-second retell')[1] || '').toLowerCase();
       const covered = LISTEN_DRILL.keyIdeas.filter((k) => k.toLowerCase().split(' ').filter((w) => w.length > 4).some((w) => retell.includes(w)));
@@ -222,3 +224,63 @@ const LISTEN_DRILL = {
     { phrase: 'see how it goes', meaning: 'Try it and wait for the result.', example: "Let's try the new plan and see how it goes." },
   ],
 };
+
+/* Demo pronunciation check: picks believable problem words from what was said. */
+const PRON_BANK: Record<string, { heard: string; issue: string; tip: string; ipa: string }> = {
+  work: { heard: 'wor', issue: 'final-consonant', tip: 'Finish with a clear /k/: wor-K.', ipa: 'wɜːrk' },
+  asked: { heard: 'ask', issue: 'final-consonant', tip: 'Say both endings: ask-T (sounds like "askt").', ipa: 'æskt' },
+  months: { heard: 'mon', issue: 'final-consonant', tip: 'Keep the "-nths" ending: mun-THS.', ipa: 'mʌnθs' },
+  think: { heard: 'tink', issue: 'th', tip: 'Tongue between your teeth, then blow: TH-ink.', ipa: 'θɪŋk' },
+  three: { heard: 'tree', issue: 'th', tip: 'Tongue between your teeth for "th", not "t".', ipa: 'θriː' },
+  things: { heard: 'tings', issue: 'th', tip: 'Soft "th" plus a buzzing /z/ at the end.', ipa: 'θɪŋz' },
+  developer: { heard: 'DE-ve-lo-per', issue: 'stress', tip: 'Stress the 2nd syllable: de-VEL-o-per.', ipa: 'dɪˈveləpər' },
+  develop: { heard: 'DE-ve-lop', issue: 'stress', tip: 'Stress the 2nd syllable: de-VEL-op.', ipa: 'dɪˈveləp' },
+  she: { heard: 'see', issue: 's-sh', tip: 'Round your lips and push air: "shh-ee".', ipa: 'ʃiː' },
+  short: { heard: 'sort', issue: 's-sh', tip: 'Round your lips for "sh": SH-ort.', ipa: 'ʃɔːrt' },
+  finished: { heard: 'finis', issue: 'final-consonant', tip: 'End with "sht": fi-ni-SHT.', ipa: 'ˈfɪnɪʃt' },
+  project: { heard: 'pro-JECT', issue: 'stress', tip: 'As a noun, stress the 1st syllable: PRO-ject.', ipa: 'ˈprɑːdʒekt' },
+  important: { heard: 'im-por-tan', issue: 'final-consonant', tip: 'Stress POR and finish the /t/: im-POR-tant.', ipa: 'ɪmˈpɔːrtənt' },
+  because: { heard: 'bi-cau', issue: 'final-consonant', tip: 'End with a buzzing /z/: be-CAUZ.', ipa: 'bɪˈkɔːz' },
+  this: { heard: 'dis', issue: 'th', tip: 'Voiced "th": tongue between teeth, then hum.', ipa: 'ðɪs' },
+};
+
+function mockPronunciation(prompt: string): unknown {
+  const said = (prompt.match(/recognition heard[^"]*"""([\s\S]*?)"""/)?.[1] || prompt.match(/trying to say: """([\s\S]*?)"""/)?.[1] || '').trim();
+  const words = said.split(/\s+/).map((w) => w.replace(/[^A-Za-z']/g, '')).filter(Boolean);
+  const picked: Array<Record<string, string>> = [];
+  const seen = new Set<string>();
+  for (const w of words) {
+    const k = w.toLowerCase();
+    if (PRON_BANK[k] && PRON_BANK[k].tip && !seen.has(k)) { seen.add(k); picked.push({ word: w, ...PRON_BANK[k] }); }
+    if (picked.length >= 4) break;
+  }
+  // Fill up to 3 with words ending in a consonant cluster (a typical final-consonant slip).
+  for (const w of words) {
+    if (picked.length >= 3) break;
+    const k = w.toLowerCase();
+    if (seen.has(k) || w.length < 4 || !/(ed|ks|ts|st|nd|ct|ld|ps)$/i.test(w)) continue;
+    seen.add(k);
+    picked.push({ word: w, heard: w.slice(0, -1), issue: 'final-consonant', tip: `Don't drop the end: say the final "${w.slice(-1)}" clearly.`, ipa: '' });
+  }
+  const fillers: Record<string, number> = {};
+  for (const f of ['um', 'uh', 'like', 'you know']) {
+    const c = (said.toLowerCase().match(new RegExp(`\\b${f}\\b`, 'g')) || []).length;
+    if (c) fillers[f] = c;
+  }
+  if (!Object.keys(fillers).length && words.length > 12) fillers.um = 1;
+  const n = words.length;
+  return {
+    transcript: said,
+    score: n ? Math.max(55, 86 - picked.length * 4) : 0,
+    clarity: 'Mostly clear. A few word endings got swallowed.',
+    intonation: 'Good rise and fall, a little flat on long sentences.',
+    pace: 'Comfortable pace; slow down slightly on key words.',
+    wpm: n ? 118 : 0,
+    fillers,
+    longPauses: n > 15 ? 1 : 0,
+    longestPause: n > 15 ? 1.8 : 0,
+    words: picked,
+    rhythmTip: /want to/i.test(said) ? 'Link "want to" → "wanna" in casual speech.' : 'Link words together: "a lot of" → "a-lo-dəv". Stress the key words, not every word.',
+    wellDone: 'Your vowels are clear and your sentences sound confident.',
+  };
+}

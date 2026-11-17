@@ -228,10 +228,15 @@ try {
   await page.click('button[title="Stop recording"]');
   await sleep(600);
   ok('retell fluency shown', await bodyHas('Fluency (this retell)'));
+  ok('Check pronunciation offered after recording (not automatic)', !!(await page.$('[data-testid="pron-check"]')) && !(await page.$('[data-testid="pron-score"]')));
+  { const tp = Date.now(); await page.evaluate(() => { const b = document.querySelector('[data-testid="pron-check"]'); b.scrollIntoView({ block: 'center' }); b.click(); });
+    await page.waitForSelector('[data-testid="pron-score"]', { timeout: 150000 });
+    ok('pronunciation checked', true, `${((Date.now() - tp) / 1000).toFixed(1)}s`); }
   const t1 = Date.now();
   await clickText('Score my retell');
   await waitText('key ideas');
   ok('retell scored', true, `${((Date.now() - t1) / 1000).toFixed(1)}s`);
+  ok('pronunciation saved with the retell', await bodyHas('Pronunciation (your retell)') && !!(await page.$('[data-testid="pron-score"]')));
   ok('model retell with Listen + shadowing', (await bodyHas('Model retell')) && (await bodyHas('Shadow the model retell')));
   const rs = await page.evaluate(() => (document.body.innerText.match(/(\d+)\/(\d+) key ideas[^\n]*/) || [''])[0]);
   console.log('Retell:', rs);

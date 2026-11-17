@@ -1,6 +1,7 @@
+import { Link } from 'react-router-dom';
 import { useStore } from '../lib/store';
 import { addDays, lastNDays, todayStr } from '../lib/date';
-import { activeDates, dictationByDay, fluencyByDay, fluencyRecords, listeningStats, phraseStats, streak } from '../lib/stats';
+import { activeDates, dictationByDay, fluencyByDay, fluencyRecords, listeningStats, phraseStats, pronunciationStats, streak } from '../lib/stats';
 import { MASTERED_STAGE } from '../lib/srs';
 import BarChart from '../components/BarChart';
 import { PageTitle } from '../components/ui';
@@ -33,6 +34,9 @@ export default function Progress() {
   const recentFillers = recentWords ? Math.round((recent.reduce((a, r) => a + r.fillers, 0) / recentWords) * 1000) / 10 : 0;
   const ls = listeningStats(state);
   const dictData = dictationByDay(state, days).map((d) => ({ label: short(d.date), value: d.accuracy, title: d.count ? `${d.date}: ${d.accuracy}% (${d.count} dictation${d.count > 1 ? 's' : ''})` : `${d.date}: no dictation` }));
+  const pr = pronunciationStats(state, days);
+  const pronData = pr.byDay.map((d) => ({ label: short(d.date), value: d.score, title: d.count ? `${d.date}: ${d.score}/100 (${d.count} check${d.count > 1 ? 's' : ''})` : `${d.date}: no pronunciation checks` }));
+  const pronDelta = pr.recentAvg != null && pr.prevAvg != null ? pr.recentAvg - pr.prevAvg : null;
   const userMsgs = state.chats.reduce((n, c) => n + c.messages.filter((m) => m.role === 'user').length, 0);
 
   const stages = Array.from({ length: MASTERED_STAGE + 1 }, (_, i) => state.phrases.filter((p) => Math.min(p.stage, MASTERED_STAGE) === i).length);
@@ -88,10 +92,29 @@ export default function Progress() {
         )}
       </div>
 
+      <div className="card" data-testid="pron-trend">
+        <div className="mb-2 flex flex-wrap items-end justify-between gap-2">
+          <div>
+            <h2 className="h-section">🗣️ Pronunciation</h2>
+            <p className="muted text-xs">Average score per day · last 14 days</p>
+          </div>
+          <p className="text-xs text-slate-500">
+            last 5 checks <b className="text-base text-slate-900 dark:text-white">{pr.recentAvg ?? '–'}</b>{pr.recentAvg != null && '/100'}
+            {pronDelta != null && pronDelta !== 0 && <span className={pronDelta > 0 ? 'ml-1 text-emerald-600' : 'ml-1 text-amber-600'}>{pronDelta > 0 ? '▲' : '▼'} {Math.abs(pronDelta)}</span>}
+            {' '}· <b>{pr.checks}</b> checks · <Link to="/phrases#sounds" className="text-blue-600 underline dark:text-blue-300">{pr.soundsTotal} sounds to fix</Link>{pr.soundsDue ? ` (${pr.soundsDue} due)` : ''}{pr.soundsMastered ? ` · ${pr.soundsMastered} fixed` : ''}
+          </p>
+        </div>
+        {pr.checks ? (
+          <BarChart data={pronData} color="fill-violet-500" unit="/100" />
+        ) : (
+          <p className="muted rounded-xl border border-dashed border-slate-300 p-6 text-center dark:border-slate-700">🗣️ Record an answer with the mic and tap “Check pronunciation” to start tracking.</p>
+        )}
+      </div>
+
       <div className="card">
         <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
           <div>
-            <h2 className="h-section">🗣️ Fluency trends</h2>
+            <h2 className="h-section">📈 Fluency trends</h2>
             <p className="muted text-xs">Last 14 days · from answers you spoke with the mic</p>
           </div>
           {recent.length > 0 && <p className="text-xs text-slate-500">Last {recent.length}: <b>{Math.round(avgOf('wpm'))}</b> wpm · <b>{recentFillers}</b> fillers/100 words · <b>{avgOf('restarts')}</b> restarts · <b>{avgOf('pauses')}</b> long pauses</p>}

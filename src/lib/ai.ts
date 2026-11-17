@@ -1,5 +1,5 @@
 import { generateJSON, type GeminiConfig, type GeminiTurn } from './gemini';
-import type { BuilderLength, BuilderLevel, BuilderPart, ChatFeedback, ChatMessage, Correction, ListenDrill, ListenLine, PhraseItem, Profile, QuestionType, RetellResult, RetryResult, Upgrade } from './types';
+import type { BuilderLength, BuilderLevel, BuilderPart, ChatFeedback, ChatMessage, Correction, ListenDrill, ListenLine, PhraseItem, Profile, PronunciationResult, PronWord, QuestionType, RetellResult, RetryResult, Upgrade } from './types';
 
 const TONE = `You are "Coach Mia", a warm, encouraging English speaking coach for a Vietnamese learner (around B1–B2).
 The learner knows a lot of vocabulary but struggles to USE it naturally and logically when speaking.
@@ -400,4 +400,114 @@ JSON shape: {"ok": boolean, "feedback": string (1–2 short, kind sentences), "b
 export async function testKey(cfg: GeminiConfig): Promise<string> {
   const r = await generateJSON<Record<string, unknown>>(cfg, 'ping', 'Reply with JSON only.', [{ role: 'user', text: 'Say hello to an English learner in 5 words. JSON shape: {"message": string}' }], 0.5);
   return str(r.message) || 'Connected!';
+}
+
+// ---------- Pronunciation (audio) ----------
+/** 1 = same word, 0 = nothing in common (Levenshtein). */
+function similarity(a: string, b: string): number {
+  if (a === b) return 1;
+  if (!a.length || !b.length) return 0;
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    prev = cur;
+  }
+  return 1 - prev[b.length] / Math.max(a.length, b.length);
+}
+export const PRON_ISSUES = ['final-consonant', 'th', 's-sh', 'stress', 'vowel', 'other'] as const;
+
+/**
+ * Pronunciation, fluency and rhythm feedback from the learner's own recording (Gemini inline audio).
+ * `expected` = the text they were trying to say (shadowing / builder model answer), if any;
+ * `transcript` = what Chrome speech recognition heard (a hint only; it auto-corrects a lot).
+ * One call returns: score, short notes, 3–5 problem words, ONE rhythm/linking tip, fillers, long pauses, WPM.
+ */
+export async function pronunciationCheck(
+  cfg: GeminiConfig,
+  audio: { mimeType: string; data: string; seconds: number; measured?: { pauses: number; longestPause: number; speechSeconds: number } },
+  opts: { expected?: string; transcript?: string; context?: string },
+): Promise<PronunciationResult> {
+  const prompt = `You are listening to a recording of a Vietnamese learner of English (B1–B2) speaking${opts.context ? ` (${opts.context})` : ''}.
+${opts.expected ? `They were trying to say: """${opts.expected.slice(0, 1500)}"""` : 'They were answering freely (no script).'}
+${opts.transcript ? `Browser speech recognition heard (a rough hint only: it auto-corrects mistakes and drops fillers, so trust the AUDIO, not this text): """${opts.transcript.slice(0, 1500)}"""` : ''}
+The recording is about ${Math.round(audio.seconds)} seconds long.
+
+Step 1 – transcribe EXACTLY what you hear, word for word, including every hesitation (um, uh, er) and filler phrase (like, you know, I mean). Use normal spelling.
+Step 2 – coach their pronunciation. Prioritise the problems Vietnamese speakers typically have:
+1. dropped or swallowed FINAL consonants and endings (-s, -ed, -k, -t, -nths: "asked" said as "ask", "months" as "mon"),
+2. "th" said as t/d/s/z ("think" as "tink", "three" as "tree", "the" as "de"),
+3. s vs sh confusion (see/she, sort/short),
+4. wrong WORD STRESS and flat sentence intonation.
+Only report problems you clearly hear in THIS audio. Do not invent problems, do not repeat these examples unless you really hear them, and never comment on grammar or word choice.
+
+Rules:
+- "words": the 3 to 5 most useful problem words (fewer if the speech was good; never more than 5). "word" = the word they MEANT, spelled correctly (if the hint or your transcript contains the mispronounced form, e.g. "tree" for three or "ask" for asked, still give the intended word). For each: "heard" = roughly what it sounded like (simple spelling), "issue" = one of ${JSON.stringify(PRON_ISSUES)}, "tip" = ONE short, simple, practical tip for that word (max 14 words; show stress with capitals, e.g. "de-VEL-op"), "ipa" = standard American IPA of the word.
+- "rhythmTip": ONE linking/rhythm tip for the whole answer using a phrase they actually said (e.g. "want to → wanna", "a lot of → a-lo-dəv"). Max 20 words.
+- "wellDone": one specific thing they did well (max 15 words).
+- "clarity", "intonation", "pace": one short sentence each (max 14 words).
+- "fillers": counts of every hesitation/filler you transcribed, e.g. {"um": 2, "uh": 1, "like": 1, "you know": 1}. Count "like"/"so" only when used as a filler. {} if none.
+- "longPauses": number of silent gaps longer than 1.5 seconds between words (ignore silence at the very start and end). "longestPause": the longest gap in seconds (0 if none).
+- "wpm": speaking speed in words per minute if you can estimate it, else 0.
+- "score": 0–100 overall pronunciation (85+ very clear, 70–84 clear with a few slips, 50–69 understandable but effortful, under 50 hard to understand). If there is no speech: score 0, empty lists.
+Keep every note short and kind: this is coaching, not a wall of red.
+JSON shape: {"transcript": string, "fillers": {"<filler>": number}, "longPauses": number, "longestPause": number, "wpm": number, "score": number, "clarity": string, "intonation": string, "pace": string, "words": [{"word": string, "heard": string, "issue": string, "tip": string, "ipa": string}], "rhythmTip": string, "wellDone": string}`;
+  const turns: GeminiTurn[] = [{ role: 'user', text: prompt, audio: { mimeType: audio.mimeType, data: audio.data } }];
+  const r = await generateJSON<Record<string, unknown>>(cfg, 'pronunciation', TONE, turns, 0.2);
+  const n = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0);
+  const fillers: Record<string, number> = {};
+  const rawF = r.fillers && typeof r.fillers === 'object' && !Array.isArray(r.fillers) ? (r.fillers as Record<string, unknown>) : {};
+  for (const [k, v] of Object.entries(rawF)) {
+    const key = k.toLowerCase().replace(/[^a-z ]/g, '').trim();
+    const c = Math.max(0, Math.round(n(v)));
+    if (key && c) fillers[key] = (fillers[key] || 0) + c;
+  }
+  // Models sometimes return the word as it sounded ("tink"); map it back to the word the learner meant
+  // using the script / speech-recognition hint (which spells words correctly).
+  const hintWords = Array.from(new Set(`${opts.expected || ''} ${opts.transcript || ''}`.toLowerCase().match(/[a-z']+/g) || []));
+  const fixWord = (w: string): string => {
+    const k = w.toLowerCase();
+    if (!hintWords.length || hintWords.includes(k)) return w;
+    let best = '', bestSim = 0;
+    for (const h of hintWords) { const sim = similarity(k, h); if (sim > bestSim) { best = h; bestSim = sim; } }
+    return bestSim >= 0.6 ? best : w;
+  };
+  const seen = new Set<string>();
+  const words: PronWord[] = arr<Record<string, unknown>>(r.words)
+    .map((w) => ({
+      word: fixWord(str(w?.word).replace(/^[^\p{L}']+|[^\p{L}']+$/gu, '')),
+      heard: str(w?.heard),
+      issue: (PRON_ISSUES as readonly string[]).includes(str(w?.issue)) ? str(w?.issue) : 'other',
+      tip: str(w?.tip),
+      ipa: str(w?.ipa).replace(/^\/|\/$/g, ''),
+    }))
+    // A "th" problem reported on a word with no "th" is the heard form ("tree", "tink"): restore it.
+    .map((w) => (w.issue === 'th' && !/th/i.test(w.word) && /^[td]/i.test(w.word) ? { ...w, heard: w.heard || w.word, word: w.word.replace(/^[td]/i, 'th') } : w))
+    .filter((w) => w.word && w.tip && !seen.has(w.word.toLowerCase()) && seen.add(w.word.toLowerCase()))
+    .slice(0, 5);
+  const transcript = str(r.transcript) || opts.transcript || '';
+  // Pauses and speed: measured from the waveform when possible (models are poor at timing silence).
+  const m = audio.measured;
+  const fillerWords = Object.values(fillers).reduce((a, b) => a + b, 0);
+  const spoken = transcript.split(/\s+/).filter((w) => /[a-z]/i.test(w)).length - fillerWords;
+  const rawWpm = m && m.speechSeconds >= 3 && spoken > 3 ? Math.round((spoken / m.speechSeconds) * 60) : 0;
+  const measuredWpm = rawWpm >= 40 && rawWpm <= 260 ? rawWpm : 0; // outside this range the measurement is not trustworthy
+  const wpm = measuredWpm || Math.round(n(r.wpm));
+  return {
+    score: Math.max(0, Math.min(100, Math.round(n(r.score)))),
+    transcript,
+    clarity: str(r.clarity),
+    intonation: str(r.intonation),
+    pace: str(r.pace),
+    wpm: wpm > 20 && wpm < 400 ? wpm : undefined,
+    fillers,
+    fillerTotal: Object.values(fillers).reduce((a, b) => a + b, 0),
+    longPauses: m ? m.pauses : Math.max(0, Math.round(n(r.longPauses))),
+    longestPause: m ? (m.longestPause || undefined) : n(r.longestPause) > 0 ? Math.round(n(r.longestPause) * 10) / 10 : undefined,
+    words,
+    rhythmTip: str(r.rhythmTip),
+    wellDone: str(r.wellDone),
+    seconds: audio.seconds,
+    createdAt: Date.now(),
+  };
 }

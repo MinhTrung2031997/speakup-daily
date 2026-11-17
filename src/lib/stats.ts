@@ -89,3 +89,35 @@ export function listeningStats(s: AppState) {
     retells: ls.filter((l) => l.retell).length,
   };
 }
+
+/** Every pronunciation check (answers, retries, builder tries, retells, shadowing takes). */
+export function pronunciationRecords(s: AppState): { date: string; score: number; createdAt: number; kind: string }[] {
+  const out: { date: string; score: number; createdAt: number; kind: string }[] = [];
+  const add = (score: number, createdAt: number, kind: string) => Number.isFinite(score) && out.push({ date: todayStr(new Date(createdAt)), score, createdAt, kind });
+  for (const e of s.entries) {
+    if (e.pronunciation) add(e.pronunciation.score, e.pronunciation.createdAt, e.builder ? 'builder' : 'answer');
+    if (e.retry?.pronunciation) add(e.retry.pronunciation.score, e.retry.pronunciation.createdAt, 'retry');
+  }
+  for (const l of s.listens || []) if (l.pronunciation) add(l.pronunciation.score, l.pronunciation.createdAt, 'retell');
+  for (const x of s.shadowPron || []) add(x.score, x.createdAt, 'shadowing');
+  return out.sort((a, b) => a.createdAt - b.createdAt);
+}
+
+export function pronunciationStats(s: AppState, days: string[]) {
+  const recs = pronunciationRecords(s);
+  const recent = recs.slice(-5);
+  const prev = recs.slice(-10, -5);
+  const avg = (l: { score: number }[]) => (l.length ? Math.round(l.reduce((a, r) => a + r.score, 0) / l.length) : null);
+  return {
+    checks: recs.length,
+    recentAvg: avg(recent),
+    prevAvg: avg(prev),
+    byDay: days.map((d) => {
+      const list = recs.filter((r) => r.date === d);
+      return { date: d, count: list.length, score: avg(list) ?? 0 };
+    }),
+    soundsDue: (s.sounds || []).filter((x) => x.stage < MASTERED_STAGE && x.due <= todayStr()).length,
+    soundsMastered: (s.sounds || []).filter((x) => x.stage >= MASTERED_STAGE).length,
+    soundsTotal: (s.sounds || []).length,
+  };
+}

@@ -1,5 +1,6 @@
 import { addDays, todayStr } from './date';
-import type { Phrase } from './types';
+/** Anything reviewed with spaced repetition (phrases, "Sounds to fix"). */
+export interface SrsItem { stage: number; due: string }
 
 /** Review days after the phrase is first saved. */
 export const INTERVALS = [1, 3, 7, 14, 30];
@@ -10,7 +11,7 @@ export function initialDue(added: string): string {
 }
 
 /** Schedule the next review after a correct/incorrect answer. */
-export function schedule(p: Phrase, ok: boolean, today = todayStr()): Pick<Phrase, 'stage' | 'due'> {
+export function schedule(p: SrsItem, ok: boolean, today = todayStr()): SrsItem {
   if (!ok) return { stage: Math.max(0, p.stage - 1), due: addDays(today, 1) };
   const stage = Math.min(MASTERED_STAGE, p.stage + 1);
   if (stage >= MASTERED_STAGE) return { stage, due: '9999-12-31' };
@@ -18,7 +19,7 @@ export function schedule(p: Phrase, ok: boolean, today = todayStr()): Pick<Phras
   return { stage, due: addDays(today, gap) };
 }
 
-export function isDue(p: Phrase, today = todayStr()): boolean {
+export function isDue(p: SrsItem, today = todayStr()): boolean {
   return p.stage < MASTERED_STAGE && p.due <= today;
 }
 

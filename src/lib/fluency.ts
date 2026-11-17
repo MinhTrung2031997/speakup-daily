@@ -1,4 +1,4 @@
-import type { FluencyStats } from './types';
+import type { FluencyStats, PronunciationResult } from './types';
 import type { SpeechSample } from './speech';
 
 /* Local, AI-free fluency analysis of spoken answers (works in demo mode too). */
@@ -130,4 +130,26 @@ export function analyzeFluency(samples: SpeechSample[]): FluencyStats | null {
     longestPause: pauses.length ? Math.round(Math.max(...pauses) / 100) / 10 : 0,
   };
   return { ...base, tip: fluencyTip(base), createdAt: Date.now() };
+}
+
+/**
+ * Prefer the counts from the recording (Gemini fillers + waveform pauses) over Chrome's transcript,
+ * which drops most "um/uh". Without an audio result the transcript-based stats are returned unchanged.
+ */
+export function withAudioFluency(f: FluencyStats | null | undefined, p: PronunciationResult | null | undefined): FluencyStats | undefined {
+  if (!p) return f || undefined;
+  const fillersWords = p.fillerTotal;
+  const words = f?.words || Math.max(0, tokenize(p.transcript).length - fillersWords);
+  const base = {
+    words,
+    seconds: f?.seconds || Math.round(p.seconds),
+    wpm: p.wpm || f?.wpm || 0,
+    fillers: p.fillerTotal,
+    fillerWords: p.fillers,
+    restarts: f?.restarts ?? findRestarts(p.transcript).length,
+    restartExamples: f?.restartExamples ?? [],
+    pauses: p.longPauses,
+    longestPause: p.longestPause || 0,
+  };
+  return { ...base, tip: fluencyTip(base), source: 'audio', createdAt: f?.createdAt || p.createdAt };
 }

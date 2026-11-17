@@ -1,11 +1,11 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import type { AppState, Phrase, PhraseItem, ShadowAttemptInput } from './types';
-import { todayStr, uid } from './date';
-import { initialDue } from './srs';
+import type { AppState, Phrase, PhraseItem, PronunciationResult, PronWord, ShadowAttemptInput, SoundItem } from './types';
+import { addDays, todayStr, uid } from './date';
+import { MASTERED_STAGE, initialDue } from './srs';
 import { cleanPhrase } from './diff';
 import { setDemoMode } from './gemini';
 import { supabase } from './supabase';
-import { DEFAULT_PROFILE, PRESET_TOPICS, importLegacy, loadState, resetAll, saveShadowAttempt, syncChanges, type ImportSummary } from './db';
+import { DEFAULT_PROFILE, PRESET_TOPICS, importLegacy, loadState, resetAll, saveShadowAttempt, saveShadowPronunciation, syncChanges, type ImportSummary } from './db';
 
 export { PRESET_TOPICS };
 
@@ -24,6 +24,8 @@ export function defaultState(): AppState {
     phrases: [],
     chats: [],
     listens: [],
+    sounds: [],
+    shadowPron: [],
     speakingLog: {},
     activityLog: {},
   };
@@ -45,6 +47,8 @@ export function normalizeState(raw: unknown): AppState {
     phrases: Array.isArray(r.phrases) ? r.phrases : [],
     chats: Array.isArray(r.chats) ? r.chats : [],
     listens: Array.isArray(r.listens) ? r.listens : [],
+    sounds: Array.isArray(r.sounds) ? r.sounds : [],
+    shadowPron: Array.isArray(r.shadowPron) ? r.shadowPron : [],
     speakingLog: r.speakingLog && typeof r.speakingLog === 'object' ? r.speakingLog : {},
     activityLog: r.activityLog && typeof r.activityLog === 'object' ? r.activityLog : {},
   };
@@ -76,6 +80,10 @@ interface Store {
   logActivity: () => void;
   addPhrases: (items: PhraseItem[], source: string) => number;
   saveShadow: (a: ShadowAttemptInput) => void;
+  /** Attach a pronunciation check to a shadowing take saved with saveShadow({ id }). */
+  saveShadowPron: (id: string, p: PronunciationResult) => void;
+  /** Add / bump problem words in "Sounds to fix". Returns how many were new. */
+  addSounds: (words: PronWord[]) => number;
   /** Copy a backup / old browser data into the database, then reload. */
   importData: (data: AppState, fromBrowser?: boolean) => Promise<ImportSummary>;
   dismissBrowserImport: () => void;
@@ -202,12 +210,57 @@ export function StoreProvider({ userId, email, children }: { userId: string; ema
     return fresh.length;
   }, [update]);
 
+  const shadowSaves = useRef(new Map<string, Promise<void>>());
   const saveShadow = useCallback((a: ShadowAttemptInput) => {
-    saveShadowAttempt(userId, a).catch((e) => {
+    const run = saveShadowAttempt(userId, a).catch((e) => {
       console.error(e);
       setSaveError(`A shadowing attempt was not saved (${e instanceof Error ? e.message : String(e)}).`);
     });
+    if (a.id) shadowSaves.current.set(a.id, run);
   }, [userId]);
+
+  const saveShadowPron = useCallback((id: string, p: PronunciationResult) => {
+    update((s) => ({ ...s, shadowPron: [...s.shadowPron.filter((x) => x.id !== id), { id, score: p.score, createdAt: p.createdAt }] }));
+    (async () => {
+      await shadowSaves.current.get(id); // the row must exist first
+      await saveShadowPronunciation(id, p);
+    })().catch((e) => console.error(e));
+  }, [update]);
+
+  const addSounds = useCallback((words: PronWord[]) => {
+    const cur = stateRef.current;
+    if (!cur || !words.length) return 0;
+    const today = todayStr();
+    const key = (w: string) => w.trim().toLowerCase();
+    const known = new Set(cur.sounds.map((x) => key(x.word)));
+    const fresh = new Set(words.map((w) => key(w.word)).filter((k) => k && !known.has(k))).size;
+    update((s) => {
+      const byWord = new Map(s.sounds.map((x) => [key(x.word), x]));
+      const added: SoundItem[] = [];
+      for (const w of words) {
+        const k = key(w.word);
+        if (!k) continue;
+        const note = w.tip || '';
+        const old = byWord.get(k);
+        if (old) {
+          // Heard again: refresh the note and bring it back for review soon (even if it was mastered).
+          const due = old.stage >= MASTERED_STAGE || old.due > addDays(today, 1) ? addDays(today, 1) : old.due;
+          byWord.set(k, {
+            ...old, note: note || old.note, ipa: w.ipa || old.ipa, issue: w.issue || old.issue, heard: w.heard || old.heard,
+            timesSeen: old.timesSeen + 1, lastSeen: today, stage: Math.min(old.stage, MASTERED_STAGE - 1), due,
+          });
+        } else {
+          const item: SoundItem = { id: uid(), word: w.word.trim(), note, ipa: w.ipa || '', issue: w.issue || '', heard: w.heard || '', timesSeen: 1, lastSeen: today, stage: 0, due: today, createdAt: Date.now() };
+          byWord.set(k, item);
+          added.push(item);
+        }
+      }
+      const addedIds = new Set(added.map((a) => a.id));
+      const updated = s.sounds.map((x) => byWord.get(key(x.word)) || x).filter((x) => !addedIds.has(x.id));
+      return { ...s, sounds: [...added, ...updated] };
+    });
+    return fresh;
+  }, [update]);
 
   const importData = useCallback(async (data: AppState, fromBrowser = false) => {
     await flush();
@@ -238,8 +291,8 @@ export function StoreProvider({ userId, email, children }: { userId: string; ema
   }, [flush]);
 
   const value = useMemo(
-    () => (state ? { state, userId, email, update, addSpeaking, logActivity, addPhrases, saveShadow, importData, dismissBrowserImport, legacy, resetData, reload: load, signOut, saving, saveError } : null),
-    [state, userId, email, update, addSpeaking, logActivity, addPhrases, saveShadow, importData, dismissBrowserImport, legacy, resetData, load, signOut, saving, saveError],
+    () => (state ? { state, userId, email, update, addSpeaking, logActivity, addPhrases, saveShadow, saveShadowPron, addSounds, importData, dismissBrowserImport, legacy, resetData, reload: load, signOut, saving, saveError } : null),
+    [state, userId, email, update, addSpeaking, logActivity, addPhrases, saveShadow, saveShadowPron, addSounds, importData, dismissBrowserImport, legacy, resetData, load, signOut, saving, saveError],
   );
 
   if (!value) {

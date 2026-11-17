@@ -10,7 +10,7 @@ const REAL = process.env.REAL === '1';
 const PREFIX = REAL ? '31' : '30';
 const { TEST_EMAIL, TEST_PASSWORD } = process.env;
 if (!TEST_EMAIL || !TEST_PASSWORD) throw new Error('Set TEST_EMAIL and TEST_PASSWORD');
-const OUT = new URL('../screenshots/', import.meta.url).pathname;
+const OUT = process.env.OUT || new URL('../screenshots/', import.meta.url).pathname;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const browser = await puppeteer.launch({
@@ -165,10 +165,15 @@ try {
   await page.click('button[title="Stop recording"]');
   await sleep(600);
   ok('fluency shown for the try', await bodyHas('Fluency (this try)'));
+  ok('Check pronunciation offered after recording (not automatic)', !!(await page.$('[data-testid="pron-check"]')) && !(await page.$('[data-testid="pron-score"]')));
+  { const tp = Date.now(); await page.evaluate(() => { const b = document.querySelector('[data-testid="pron-check"]'); b.scrollIntoView({ block: 'center' }); b.click(); });
+    await page.waitForSelector('[data-testid="pron-score"]', { timeout: 150000 });
+    ok('pronunciation checked', true, `${((Date.now() - tp) / 1000).toFixed(1)}s`); }
   const t2 = Date.now();
   await clickText('Check my answer');
   await waitText('target phrases used', 90000);
   ok('attempt scored', true, `${((Date.now() - t2) / 1000).toFixed(1)}s`);
+  ok('pronunciation saved with the builder try', await bodyHas('Pronunciation (your try)') && !!(await page.$('[data-testid="pron-score"]')));
   await shot(`${PREFIX}-5-say-it-your-way`, 'Say it your way');
   await sleep(4000); // let the background save finish
 

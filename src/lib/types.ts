@@ -67,6 +67,8 @@ export interface FluencyStats {
   restartExamples: string[];
   pauses: number; // gaps > 2s between recognised phrases
   longestPause: number; // seconds
+  /** 'audio' when fillers/pauses were counted by Gemini from the recording (else Chrome's transcript timing). */
+  source?: 'audio' | 'transcript';
   tip: string;
   createdAt: number;
 }
@@ -79,6 +81,7 @@ export interface RetryResult {
   tip: string;
   praise: string;
   fluency?: FluencyStats;
+  pronunciation?: PronunciationResult;
 }
 
 export interface Entry {
@@ -94,6 +97,8 @@ export interface Entry {
   fluency?: FluencyStats;
   /** Set when this entry came from the Answer builder (answer = the learner's "say it your way" try). */
   builder?: BuilderInfo;
+  /** Pronunciation check of the spoken answer (builder: of the "say it your way" try). */
+  pronunciation?: PronunciationResult;
   createdAt: number;
 }
 
@@ -168,6 +173,9 @@ export interface AppState {
   phrases: Phrase[];
   chats: ChatSession[];
   listens: ListenSession[];
+  sounds: SoundItem[];
+  /** Pronunciation scores of shadowing takes (read-only, for Progress). */
+  shadowPron: { id: string; score: number; createdAt: number }[];
   speakingLog: Record<string, number>; // date -> seconds spoken
   activityLog: Record<string, number>; // date -> count of practice actions
 }
@@ -182,6 +190,8 @@ export interface ShadowAttemptInput {
   seconds: number;
   /** Object URL of the recorded audio; uploaded to the private `recordings` bucket if present. */
   audioUrl?: string;
+  /** Row id (so a later pronunciation check can be attached to the same row). */
+  id?: string;
 }
 
 // ---------- Listen tab ----------
@@ -235,5 +245,55 @@ export interface ListenSession {
   dictationText?: string;
   dictationAccuracy?: number; // 0-100
   retell?: RetellResult;
+  /** Pronunciation check of the retell. */
+  pronunciation?: PronunciationResult;
+  createdAt: number;
+}
+
+// ---------- Pronunciation (audio check) ----------
+export interface PronWord {
+  /** Target word as it should be said. */
+  word: string;
+  /** Roughly what the learner said, e.g. "wor" for "work" ('' if unclear). */
+  heard: string;
+  /** final-consonant | th | s-sh | stress | vowel | other */
+  issue: string;
+  /** One short coaching tip, e.g. "stress the 2nd syllable: de-VEL-op". */
+  tip: string;
+  ipa?: string;
+}
+
+export interface PronunciationResult {
+  score: number; // 0-100
+  /** What Gemini heard, word for word, including fillers. */
+  transcript: string;
+  clarity: string;
+  intonation: string;
+  pace: string;
+  wpm?: number;
+  fillers: Record<string, number>;
+  fillerTotal: number;
+  longPauses: number; // > 1.5s
+  longestPause?: number;
+  words: PronWord[];
+  rhythmTip: string;
+  wellDone: string;
+  /** Seconds of audio that were checked. */
+  seconds: number;
+  createdAt: number;
+}
+
+/** A problem word saved to "Sounds to fix" (pronunciation_items), reviewed with the phrase SRS. */
+export interface SoundItem {
+  id: string;
+  word: string;
+  note: string;
+  ipa: string;
+  issue: string;
+  heard: string;
+  timesSeen: number;
+  lastSeen: string;
+  stage: number;
+  due: string;
   createdAt: number;
 }

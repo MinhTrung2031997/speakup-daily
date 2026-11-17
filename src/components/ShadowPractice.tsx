@@ -3,11 +3,15 @@ import { matchScore, markPhrases, splitSentences } from '../lib/diff';
 import { useRecorder, type Recording } from '../lib/recorder';
 import { speak, stopSpeaking, ttsSupported } from '../lib/speech';
 import { useStore } from '../lib/store';
+import { uid } from '../lib/date';
+import { clipFromUrl, type AudioClip } from '../lib/audio';
+import type { PronunciationResult } from '../lib/types';
+import PronunciationCard from './PronunciationCard';
 import Icon from './Icon';
 import { Spinner } from './ui';
 
 type Phase = 'idle' | 'model' | 'recording' | 'saving' | 'compare';
-interface Take extends Recording { score: number | null }
+interface Take extends Recording { score: number | null; id: string; clip: AudioClip | null; pron?: PronunciationResult }
 
 const scoreColor = (n: number) => (n >= 80 ? 'text-emerald-600 dark:text-emerald-300' : n >= 50 ? 'text-blue-600 dark:text-blue-300' : 'text-amber-600 dark:text-amber-300');
 
@@ -36,7 +40,7 @@ function playUrl(url: string, audioRef: MutableRefObject<HTMLAudioElement | null
  * to shadowing_attempts, with the audio uploaded to the private `recordings` bucket.
  */
 export default function ShadowPractice({ text, phrases = [], onClose }: { text: string; phrases?: string[]; onClose?: () => void }) {
-  const { state, addSpeaking, logActivity, saveShadow } = useStore();
+  const { state, addSpeaking, logActivity, saveShadow, saveShadowPron } = useStore();
   const { rate, voiceURI } = state.settings;
   const sentences = useMemo(() => splitSentences(text), [text]);
   const rec = useRecorder();
@@ -81,11 +85,13 @@ export default function ShadowPractice({ text, phrases = [], onClose }: { text: 
     }
     const score = rec.canTranscribe ? matchScore(sentence, r.transcript).score : null;
     // Save the attempt (and upload the recording to the private bucket) in the background.
-    saveShadow({ sourceText: text, sentenceIndex: idx, sentence, transcript: r.transcript, score, seconds: r.seconds, audioUrl: r.url || undefined });
+    const id = uid();
+    saveShadow({ id, sourceText: text, sentenceIndex: idx, sentence, transcript: r.transcript, score, seconds: r.seconds, audioUrl: r.url || undefined });
+    const clip = r.url ? await clipFromUrl(r.url, r.seconds) : null;
     setTakes((all) => {
       const old = all[idx];
       if (old?.url && old.url !== r.url) URL.revokeObjectURL(old.url);
-      return { ...all, [idx]: { ...r, score } };
+      return { ...all, [idx]: { ...r, score, id, clip } };
     });
   };
 
@@ -228,6 +234,22 @@ export default function ShadowPractice({ text, phrases = [], onClose }: { text: 
             <p className="text-slate-600 dark:text-slate-300">Recorded ✓ Your browser can't transcribe speech, so there's no score. Use “Model + me” to compare by ear.</p>
           )}
         </div>
+      )}
+      {take && phase !== 'recording' && phase !== 'saving' && (take.clip || take.pron) && (
+        <PronunciationCard
+          key={take.id}
+          clips={take.clip ? [take.clip] : []}
+          transcript={take.transcript}
+          expected={sentence}
+          result={take.pron}
+          onResult={(p) => {
+            const at = idx;
+            setTakes((all) => (all[at]?.id === take.id ? { ...all, [at]: { ...all[at], pron: p } } : all));
+            saveShadowPron(take.id, p);
+          }}
+          context="shadowing: repeating a model sentence right after hearing it"
+          title="🗣️ Pronunciation (this take)"
+        />
       )}
 
       {rec.error && <p className="text-xs text-amber-700 dark:text-amber-300">{rec.error}</p>}

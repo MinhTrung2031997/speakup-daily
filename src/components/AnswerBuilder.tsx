@@ -4,9 +4,11 @@ import { useAIConfig } from '../lib/hooks';
 import { builderAnswer, builderIdeas, builderQuestion, DEFAULT_SLOTS, QUESTION_TYPES, scoreRetry, type IdeaRow } from '../lib/ai';
 import { errorText } from '../lib/gemini';
 import { todayStr, uid } from '../lib/date';
-import { analyzeFluency } from '../lib/fluency';
+import { analyzeFluency, withAudioFluency } from '../lib/fluency';
+import type { AudioClip } from '../lib/audio';
+import PronunciationCard from './PronunciationCard';
 import type { SpeechSample } from '../lib/speech';
-import type { BuilderInfo, BuilderLength, BuilderLevel, Entry, QuestionType } from '../lib/types';
+import type { BuilderInfo, BuilderLength, BuilderLevel, Entry, PronunciationResult, QuestionType } from '../lib/types';
 import BuilderResult from './BuilderResult';
 import FluencyCard from './FluencyCard';
 import MicInput from './MicInput';
@@ -79,14 +81,22 @@ export default function AnswerBuilder() {
   const [practice, setPractice] = useState(false);
   const [attempt, setAttempt] = useState('');
   const [samples, setSamples] = useState<SpeechSample[]>([]);
+  const [clips, setClips] = useState<AudioClip[]>([]);
+  const [pron, setPron] = useState<PronunciationResult>();
   const [scoring, setScoring] = useState(false);
   const [scoreError, setScoreError] = useState('');
   const answerRef = useRef<HTMLDivElement>(null);
   const tryRef = useRef<HTMLDivElement>(null);
 
   const entry = entryId ? state.entries.find((e) => e.id === entryId) : undefined;
-  const fluency = useMemo(() => analyzeFluency(samples), [samples]);
-  useEffect(() => { if (!attempt.trim()) setSamples([]); }, [attempt]);
+  const fluency = useMemo(() => withAudioFluency(analyzeFluency(samples), pron), [samples, pron]);
+  useEffect(() => { if (!attempt.trim()) { setSamples([]); setClips([]); setPron(undefined); } }, [attempt]);
+  const onSavedPron = (r: PronunciationResult) => {
+    setPron(r);
+    if (!entry) return;
+    const f = withAudioFluency(entry.fluency, r);
+    update((s) => ({ ...s, entries: s.entries.map((x) => (x.id === entry.id ? { ...x, pronunciation: r, ...(f ? { fluency: f } : {}) } : x)) }));
+  };
 
   const topicLabel = custom.trim() || topic;
   const pickedAll = slots.length > 0 && slots.every((s) => (picks[s] || '').trim());
@@ -103,7 +113,7 @@ export default function AnswerBuilder() {
 
   const resetAfterQuestion = () => {
     setRows([]); setPicks({}); setTyped({}); setIdeaError('');
-    setEntryId(''); setBuildError(''); setPractice(false); setAttempt(''); setSamples([]); setScoreError('');
+    setEntryId(''); setBuildError(''); setPractice(false); setAttempt(''); setSamples([]); setClips([]); setPron(undefined); setScoreError('');
   };
 
   const loadIdeas = async (q: string, ty: QuestionType, sl: string[]) => {
@@ -197,7 +207,7 @@ export default function AnswerBuilder() {
     try {
       const structure = (entry.builder?.slots || DEFAULT_SLOTS[askedType]).join(', ');
       const r = await scoreRetry(ai, entry.question, entry.upgrade.natural, entry.upgrade.phrases.map((p) => p.phrase), attempt.trim(), structure, 'builder-retry');
-      const next: Entry = { ...entry, answer: attempt.trim(), retry: r, ...(fluency ? { fluency } : {}) };
+      const next: Entry = { ...entry, answer: attempt.trim(), retry: r, ...(fluency ? { fluency } : {}), pronunciation: pron };
       update((s) => ({ ...s, entries: s.entries.map((x) => (x.id === entry.id ? next : x)) }));
       logActivity();
       setPractice(false);
@@ -319,7 +329,7 @@ export default function AnswerBuilder() {
             <Step n={5} title="Say it your way">
               <p className="muted">Hide the answer, then say it in your own words with the mic (or type). Try to use the highlighted phrases.</p>
               {!practice ? (
-                <button className="btn-soft" onClick={() => { setPractice(true); setAttempt(''); setSamples([]); setTimeout(() => tryRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50); }}>
+                <button className="btn-soft" onClick={() => { setPractice(true); setAttempt(''); setSamples([]); setClips([]); setPron(undefined); setTimeout(() => tryRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50); }}>
                   <Icon name="mic" className="h-4 w-4" /> {entry.retry ? 'Try again' : 'Hide answer & try'}
                 </button>
               ) : (
@@ -328,8 +338,9 @@ export default function AnswerBuilder() {
                     <span className="text-xs text-slate-500">Try to use:</span>
                     {entry.upgrade.phrases.map((p) => <span key={p.phrase} className="chip bg-amber-100 text-amber-800 dark:bg-amber-400/15 dark:text-amber-200">{p.phrase}</span>)}
                   </div>
-                  <MicInput value={attempt} onChange={setAttempt} onSpeech={(s) => setSamples((a) => [...a, s])} placeholder="Answer in your own words without looking…" rows={4} />
+                  <MicInput value={attempt} onChange={setAttempt} onSpeech={(s) => setSamples((a) => [...a, s])} onAudio={(c) => { setClips((a) => [...a, c]); setPron(undefined); }} placeholder="Answer in your own words without looking…" rows={4} />
                   {fluency && <FluencyCard stats={fluency} title="📈 Fluency (this try)" />}
+                  <PronunciationCard clips={clips} transcript={attempt} result={pron} onResult={setPron} context="saying a prepared answer in their own words" title="🗣️ Pronunciation (this try)" />
                   <div className="flex flex-wrap gap-2">
                     <button className="btn-primary" onClick={score} disabled={!attempt.trim() || scoring}>{scoring ? <Spinner /> : <Icon name="check" className="h-4 w-4" />} Check my answer</button>
                     <button className="btn-ghost" onClick={() => setPractice(false)}>Show answer</button>
@@ -341,6 +352,9 @@ export default function AnswerBuilder() {
                 <>
                   {entry.fluency && <FluencyCard stats={entry.fluency} title="📈 Fluency (your try)" />}
                   <RetryCard entry={entry} />
+                  {(entry.pronunciation || clips.length > 0) && (
+                    <PronunciationCard clips={attempt.trim() === entry.answer.trim() ? clips : []} transcript={entry.answer} result={entry.pronunciation} onResult={onSavedPron} context="saying a prepared answer in their own words" title="🗣️ Pronunciation (your try)" />
+                  )}
                   <p className="muted text-xs">✅ Saved to History.</p>
                 </>
               )}

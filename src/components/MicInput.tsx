@@ -1,4 +1,5 @@
-import { useRef } from 'react';
+import { useEffect, useRef } from 'react';
+import { useClipRecorder, type AudioClip } from '../lib/audio';
 import { useSpeechRecognition, type SpeechSample } from '../lib/speech';
 import { useStore } from '../lib/store';
 import Icon from './Icon';
@@ -14,10 +15,12 @@ interface Props {
   sendDisabled?: boolean;
   /** Called after each mic session with the transcript and timing (for fluency stats). */
   onSpeech?: (sample: SpeechSample) => void;
+  /** Also keep the recording (MediaRecorder) of each mic session, e.g. for the pronunciation check. */
+  onAudio?: (clip: AudioClip) => void;
 }
 
 /** Text box with a mic button that appends speech-to-text into the box. */
-export default function MicInput({ value, onChange, placeholder, rows = 4, disabled, onSend, sendDisabled, onSpeech }: Props) {
+export default function MicInput({ value, onChange, placeholder, rows = 4, disabled, onSend, sendDisabled, onSpeech, onAudio }: Props) {
   const { addSpeaking } = useStore();
   const valueRef = useRef(value);
   valueRef.current = value;
@@ -32,6 +35,17 @@ export default function MicInput({ value, onChange, placeholder, rows = 4, disab
     onSession: (sec) => addSpeaking(sec),
     onSample: (s) => s.transcript && onSpeech?.(s),
   });
+
+  // Record audio alongside speech recognition while the mic is on.
+  const rec = useClipRecorder(!!onAudio);
+  const onAudioRef = useRef(onAudio);
+  onAudioRef.current = onAudio;
+  const wasListening = useRef(false);
+  useEffect(() => {
+    if (sr.listening && !wasListening.current) rec.start();
+    if (!sr.listening && wasListening.current) rec.stop().then((c) => c && onAudioRef.current?.(c));
+    wasListening.current = sr.listening;
+  }, [sr.listening, rec]);
 
   return (
     <div>

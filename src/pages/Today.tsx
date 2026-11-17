@@ -7,9 +7,11 @@ import { errorText } from '../lib/gemini';
 import { prettyDate, todayStr, uid } from '../lib/date';
 import { isDue } from '../lib/srs';
 import { streak } from '../lib/stats';
-import type { DailyQuestion, Entry } from '../lib/types';
+import type { DailyQuestion, Entry, PronunciationResult } from '../lib/types';
+import type { AudioClip } from '../lib/audio';
 import type { SpeechSample } from '../lib/speech';
-import { analyzeFluency } from '../lib/fluency';
+import { analyzeFluency, withAudioFluency } from '../lib/fluency';
+import PronunciationCard from '../components/PronunciationCard';
 import FluencyCard from '../components/FluencyCard';
 import MicInput from '../components/MicInput';
 import UpgradeResult from '../components/UpgradeResult';
@@ -45,6 +47,10 @@ export default function Today() {
   const [retryError, setRetryError] = useState('');
   const [answerSamples, setAnswerSamples] = useState<SpeechSample[]>([]);
   const [attemptSamples, setAttemptSamples] = useState<SpeechSample[]>([]);
+  const [answerClips, setAnswerClips] = useState<AudioClip[]>([]);
+  const [attemptClips, setAttemptClips] = useState<AudioClip[]>([]);
+  const [answerPron, setAnswerPron] = useState<PronunciationResult>();
+  const [attemptPron, setAttemptPron] = useState<PronunciationResult>();
   const autoTried = useRef(false);
   const [mode, setMode] = useState<'daily' | 'builder'>(() => {
     try { return localStorage.getItem(MODE_KEY) === 'builder' ? 'builder' : 'daily'; } catch { return 'daily'; }
@@ -65,16 +71,38 @@ export default function Today() {
     setRetryError('');
     setAnswerSamples([]);
     setAttemptSamples([]);
+    setAnswerClips([]);
+    setAttemptClips([]);
+    setAnswerPron(undefined);
+    setAttemptPron(undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q?.id]);
 
   // Clearing the box starts a fresh answer, so drop its speech stats too.
-  useEffect(() => { if (!answer.trim()) setAnswerSamples([]); }, [answer]);
-  useEffect(() => { if (!attempt.trim()) setAttemptSamples([]); }, [attempt]);
+  useEffect(() => { if (!answer.trim()) { setAnswerSamples([]); setAnswerClips([]); setAnswerPron(undefined); } }, [answer]);
+  useEffect(() => { if (!attempt.trim()) { setAttemptSamples([]); setAttemptClips([]); setAttemptPron(undefined); } }, [attempt]);
 
+  const sameAnswer = !!entry && entry.answer === answer.trim();
+  // A fresh recording replaces the saved check (until it is checked itself).
+  const shownAnswerPron = answerPron || (sameAnswer && !answerClips.length ? entry?.pronunciation : undefined);
   const liveFluency = useMemo(() => analyzeFluency(answerSamples), [answerSamples]);
-  const attemptFluency = useMemo(() => analyzeFluency(attemptSamples), [attemptSamples]);
-  const answerFluency = liveFluency || (entry && entry.answer === answer.trim() ? entry.fluency : undefined);
+  const attemptFluency = useMemo(() => withAudioFluency(analyzeFluency(attemptSamples), attemptPron), [attemptSamples, attemptPron]);
+  // Fillers / pauses from the recording win over Chrome's transcript when a pronunciation check ran.
+  const answerFluency = withAudioFluency(liveFluency || (sameAnswer ? entry?.fluency : undefined), shownAnswerPron);
+
+  const onAnswerPron = (r: PronunciationResult) => {
+    setAnswerPron(r);
+    if (entry && sameAnswer) {
+      const fluency = withAudioFluency(liveFluency || entry.fluency, r);
+      update((s) => ({ ...s, entries: s.entries.map((x) => (x.id === entry.id ? { ...x, pronunciation: r, ...(fluency ? { fluency } : {}) } : x)) }));
+    }
+  };
+  const onRetryPron = (r: PronunciationResult) => {
+    setAttemptPron(r);
+    if (!entry?.retry) return;
+    const fluency = withAudioFluency(entry.retry.fluency, r);
+    update((s) => ({ ...s, entries: s.entries.map((x) => (x.id === entry.id && x.retry ? { ...x, retry: { ...x.retry, pronunciation: r, ...(fluency ? { fluency } : {}) } } : x)) }));
+  };
 
   const newQuestion = useCallback(async () => {
     setLoadingQ(true);
@@ -119,9 +147,10 @@ export default function Today() {
     try {
       const up = await upgradeAnswer(ai, state.profile, q.question, answer.trim());
       const fluency = answerFluency || undefined;
+      const pronunciation = shownAnswerPron;
       const e: Entry = entry
-        ? { ...entry, answer: answer.trim(), upgrade: up, retry: undefined, fluency }
-        : { id: uid(), date: todayStr(), questionId: q.id, question: q.question, topicName: q.topicName, answer: answer.trim(), upgrade: up, fluency, createdAt: Date.now() };
+        ? { ...entry, answer: answer.trim(), upgrade: up, retry: undefined, fluency, pronunciation }
+        : { id: uid(), date: todayStr(), questionId: q.id, question: q.question, topicName: q.topicName, answer: answer.trim(), upgrade: up, fluency, pronunciation, createdAt: Date.now() };
       update((s) => ({ ...s, entries: entry ? s.entries.map((x) => (x.id === e.id ? e : x)) : [...s.entries, e] }));
       const n = addPhrases(up.phrases, q.question);
       logActivity();
@@ -143,6 +172,7 @@ export default function Today() {
     try {
       const r = await scoreRetry(ai, entry.question, entry.upgrade.natural, entry.upgrade.phrases.map((p) => p.phrase), attempt.trim());
       if (attemptFluency) r.fluency = attemptFluency;
+      if (attemptPron) r.pronunciation = attemptPron;
       update((s) => ({ ...s, entries: s.entries.map((x) => (x.id === entry.id ? { ...x, retry: r } : x)) }));
       logActivity();
       setPractice(false);
@@ -154,7 +184,7 @@ export default function Today() {
   };
 
   const st = streak(state);
-  const due = state.phrases.filter((p) => isDue(p)).length;
+  const due = state.phrases.filter((p) => isDue(p)).length + state.sounds.filter((x) => isDue(x)).length;
   const name = state.profile.name.trim();
 
   return (
@@ -218,8 +248,9 @@ export default function Today() {
             <h2 className="h-section">🎙️ Your answer</h2>
             <p className="muted">Say it out loud with the mic, or type. Don't worry about mistakes. Just get your idea out.</p>
           </div>
-          <MicInput value={answer} onChange={setAnswer} onSpeech={(s) => setAnswerSamples((a) => [...a, s])} placeholder="Tap the mic and speak, or type your answer here…" rows={5} />
+          <MicInput value={answer} onChange={setAnswer} onSpeech={(s) => setAnswerSamples((a) => [...a, s])} onAudio={(c) => { setAnswerClips((a) => [...a, c]); setAnswerPron(undefined); }} placeholder="Tap the mic and speak, or type your answer here…" rows={5} />
           {answerFluency ? <FluencyCard stats={answerFluency} /> : answer.trim() && <p className="muted text-xs">🎙️ Answer with the mic to see your pace, filler words, restarts and long pauses.</p>}
+          <PronunciationCard clips={answerClips} transcript={answer} result={shownAnswerPron} onResult={onAnswerPron} context={q ? `answering the question "${q.question}"` : undefined} />
           <div className="flex flex-wrap items-center gap-2">
             <button className="btn-primary" onClick={doUpgrade} disabled={!answer.trim() || upgrading || !ai.hasKey}>
               {upgrading ? <Spinner /> : <Icon name="sparkles" className="h-4 w-4" />} {entry?.upgrade ? 'Upgrade again' : 'Upgrade my answer'}
@@ -244,15 +275,16 @@ export default function Today() {
               <p className="muted">After shadowing, hide the model answer and say it again in your own way, using the new phrases.</p>
             </div>
             {!practice ? (
-              <button className="btn-soft" onClick={() => { setPractice(true); setAttempt(''); setAttemptSamples([]); }}><Icon name="mic" className="h-4 w-4" /> Hide answer &amp; try again</button>
+              <button className="btn-soft" onClick={() => { setPractice(true); setAttempt(''); setAttemptSamples([]); setAttemptClips([]); setAttemptPron(undefined); }}><Icon name="mic" className="h-4 w-4" /> Hide answer &amp; try again</button>
             ) : (
               <>
                 <div className="flex flex-wrap gap-1.5">
                   <span className="text-xs text-slate-500">Try to use:</span>
                   {entry.upgrade.phrases.map((p) => <span key={p.phrase} className="chip bg-amber-100 text-amber-800 dark:bg-amber-400/15 dark:text-amber-200">{p.phrase}</span>)}
                 </div>
-                <MicInput value={attempt} onChange={setAttempt} onSpeech={(s) => setAttemptSamples((a) => [...a, s])} placeholder="Answer again without looking…" rows={4} />
+                <MicInput value={attempt} onChange={setAttempt} onSpeech={(s) => setAttemptSamples((a) => [...a, s])} onAudio={(c) => { setAttemptClips((a) => [...a, c]); setAttemptPron(undefined); }} placeholder="Answer again without looking…" rows={4} />
                 {attemptFluency && <FluencyCard stats={attemptFluency} title="📈 Fluency (this try)" />}
+                <PronunciationCard clips={attemptClips} transcript={attempt} result={attemptPron} onResult={setAttemptPron} context="saying their answer again in their own words" title="🗣️ Pronunciation (this try)" />
                 <div className="flex gap-2">
                   <button className="btn-primary" onClick={doScore} disabled={!attempt.trim() || scoring}>{scoring ? <Spinner /> : <Icon name="check" className="h-4 w-4" />} Check my attempt</button>
                   <button className="btn-ghost" onClick={() => setPractice(false)}>Show answer</button>
@@ -261,6 +293,9 @@ export default function Today() {
               </>
             )}
             {entry.retry && !practice && <RetryCard entry={entry} />}
+            {entry.retry && !practice && (entry.retry.pronunciation || attemptClips.length > 0) && (
+              <PronunciationCard clips={attempt.trim() === entry.retry.attempt?.trim() ? attemptClips : []} transcript={entry.retry.attempt || attempt} result={entry.retry.pronunciation} onResult={onRetryPron} context="saying their answer again in their own words" title="🗣️ Pronunciation (your try)" />
+            )}
           </section>
         </div>
       )}

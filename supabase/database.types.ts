@@ -30,6 +30,7 @@ export type Database = {
           topic_name: string
           updated_at: string
           upgrade: Json | null
+          pronunciation: Json | null
           user_id: string
         }
         Insert: {
@@ -47,6 +48,7 @@ export type Database = {
           topic_name?: string
           updated_at?: string
           upgrade?: Json | null
+          pronunciation?: Json | null
           user_id?: string
         }
         Update: {
@@ -64,6 +66,7 @@ export type Database = {
           topic_name?: string
           updated_at?: string
           upgrade?: Json | null
+          pronunciation?: Json | null
           user_id?: string
         }
         Relationships: [
@@ -336,6 +339,7 @@ export type Database = {
           speed: number
           topic: string
           updated_at: string
+          pronunciation: Json | null
           user_id: string
         }
         Insert: {
@@ -354,6 +358,7 @@ export type Database = {
           speed?: number
           topic?: string
           updated_at?: string
+          pronunciation?: Json | null
           user_id?: string
         }
         Update: {
@@ -372,6 +377,7 @@ export type Database = {
           speed?: number
           topic?: string
           updated_at?: string
+          pronunciation?: Json | null
           user_id?: string
         }
         Relationships: []
@@ -479,6 +485,54 @@ export type Database = {
           },
         ]
       }
+      pronunciation_items: {
+        Row: {
+          created_at: string
+          heard: string
+          id: string
+          ipa: string
+          issue: string
+          last_seen: string
+          next_review: string
+          note: string
+          stage: number
+          times_seen: number
+          updated_at: string
+          user_id: string
+          word: string
+        }
+        Insert: {
+          created_at?: string
+          heard?: string
+          id?: string
+          ipa?: string
+          issue?: string
+          last_seen?: string
+          next_review?: string
+          note?: string
+          stage?: number
+          times_seen?: number
+          updated_at?: string
+          user_id?: string
+          word: string
+        }
+        Update: {
+          created_at?: string
+          heard?: string
+          id?: string
+          ipa?: string
+          issue?: string
+          last_seen?: string
+          next_review?: string
+          note?: string
+          stage?: number
+          times_seen?: number
+          updated_at?: string
+          user_id?: string
+          word?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           city: string
@@ -533,6 +587,7 @@ export type Database = {
           source_text: string
           transcript: string
           updated_at: string
+          pronunciation: Json | null
           user_id: string
         }
         Insert: {
@@ -549,6 +604,7 @@ export type Database = {
           source_text?: string
           transcript?: string
           updated_at?: string
+          pronunciation?: Json | null
           user_id?: string
         }
         Update: {
@@ -565,6 +621,7 @@ export type Database = {
           source_text?: string
           transcript?: string
           updated_at?: string
+          pronunciation?: Json | null
           user_id?: string
         }
         Relationships: [

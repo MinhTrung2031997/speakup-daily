@@ -5,9 +5,11 @@ import { listenDrill, scoreRetell } from '../lib/ai';
 import { errorText } from '../lib/gemini';
 import { todayStr, uid } from '../lib/date';
 import { markPhrases, matchScore, wordDiff } from '../lib/diff';
-import { analyzeFluency } from '../lib/fluency';
+import { analyzeFluency, withAudioFluency } from '../lib/fluency';
+import type { AudioClip } from '../lib/audio';
+import PronunciationCard from '../components/PronunciationCard';
 import { dialogueVoices, speakWith, stopSpeaking, ttsSupported, useEnglishVoices, type SpeechSample } from '../lib/speech';
-import type { Accent, BuilderLevel, ListenSession } from '../lib/types';
+import type { Accent, BuilderLevel, ListenSession, PronunciationResult } from '../lib/types';
 import FluencyCard from '../components/FluencyCard';
 import ListenPlayer from '../components/ListenPlayer';
 import MicInput from '../components/MicInput';
@@ -118,11 +120,14 @@ export default function Listen() {
   const [dictText, setDictText] = useState('');
   const [retell, setRetell] = useState('');
   const [samples, setSamples] = useState<SpeechSample[]>([]);
+  const [clips, setClips] = useState<AudioClip[]>([]);
+  const [pron, setPron] = useState<PronunciationResult>();
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
   const [scoring, setScoring] = useState(false);
   const [retellError, setRetellError] = useState('');
   const topRef = useRef<HTMLDivElement>(null);
-  const fluency = useMemo(() => analyzeFluency(samples), [samples]);
+  const fluency = useMemo(() => withAudioFluency(analyzeFluency(samples), pron), [samples, pron]);
+  useEffect(() => { if (!retell.trim()) { setSamples([]); setClips([]); setPron(undefined); } }, [retell]);
 
   // Reset local inputs when switching sessions.
   useEffect(() => {
@@ -133,6 +138,8 @@ export default function Listen() {
     setDictText(session?.dictationText || '');
     setRetell('');
     setSamples([]);
+    setClips([]);
+    setPron(undefined);
     setTimeLeft(null);
     setRetellError('');
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -203,7 +210,7 @@ export default function Listen() {
     try {
       const r = await scoreRetell(ai, d, retell.trim());
       if (fluency) r.fluency = fluency;
-      save({ retell: r });
+      save({ retell: r, ...(pron ? { pronunciation: pron } : {}) });
       setTimeLeft(null);
       logActivity();
     } catch (e) {
@@ -366,14 +373,22 @@ export default function Listen() {
             <Step n={5} title="Retell it in 60 seconds" right={timeLeft !== null && <span className={`chip font-mono ${timeLeft <= 10 ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-200' : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200'}`}>⏱️ {timeLeft > 0 ? `0:${String(timeLeft).padStart(2, '0')}` : "Time's up"}</span>}>
               <p className="muted">Say what Alex and Sam talked about, in your own words. Try to use the phrases above.</p>
               {session.retell ? (
-                <RetellCard s={session} />
+                <>
+                  <RetellCard s={session} showPron={false} />
+                  {(session.pronunciation || clips.length > 0) && (
+                    <PronunciationCard clips={retell.trim() === session.retell.retell.trim() ? clips : []} transcript={session.retell.retell} result={session.pronunciation}
+                      onResult={(r) => { const f = withAudioFluency(session.retell?.fluency, r); save({ pronunciation: r, ...(session.retell ? { retell: { ...session.retell, ...(f ? { fluency: f } : {}) } } : {}) }); }}
+                      context="retelling a short dialogue they just heard" title="🗣️ Pronunciation (your retell)" />
+                  )}
+                </>
               ) : (
                 <>
                   {timeLeft === null && <button className="btn-soft" onClick={() => { player.stop(); setTimeLeft(RETELL_SECONDS); }}><Icon name="mic" className="h-4 w-4" /> Start 60s retell</button>}
                   {timeLeft !== null && (
                     <>
-                      <MicInput value={retell} onChange={setRetell} onSpeech={(s) => setSamples((a) => [...a, s])} placeholder="Tap the mic and retell the chat, or type…" rows={4} />
+                      <MicInput value={retell} onChange={setRetell} onSpeech={(s) => setSamples((a) => [...a, s])} onAudio={(c) => { setClips((a) => [...a, c]); setPron(undefined); }} placeholder="Tap the mic and retell the chat, or type…" rows={4} />
                       {fluency && <FluencyCard stats={fluency} title="📈 Fluency (this retell)" />}
+                      <PronunciationCard clips={clips} transcript={retell} result={pron} onResult={setPron} context="retelling a short dialogue they just heard" title="🗣️ Pronunciation (this retell)" />
                       <button className="btn-primary" onClick={doRetell} disabled={!retell.trim() || scoring}>{scoring ? <Spinner /> : <Icon name="check" className="h-4 w-4" />} Score my retell</button>
                     </>
                   )}
@@ -418,7 +433,7 @@ export function ListenBadges({ s }: { s: ListenSession }) {
   );
 }
 
-export function RetellCard({ s }: { s: ListenSession }) {
+export function RetellCard({ s, showPron = true }: { s: ListenSession; showPron?: boolean }) {
   const r = s.retell!;
   return (
     <div className="space-y-3">
@@ -436,6 +451,7 @@ export function RetellCard({ s }: { s: ListenSession }) {
       {r.phrasesUsed.length > 0 && <p className="text-sm">💬 Phrases you used: {r.phrasesUsed.map((p) => <mark key={p} className="mark-phrase mr-1">{p}</mark>)}</p>}
       <p className="rounded-lg bg-slate-50 p-2.5 text-sm text-slate-600 dark:bg-slate-800/60 dark:text-slate-300">“{r.retell}”</p>
       {r.fluency && <FluencyCard stats={r.fluency} title="📈 Fluency (your retell)" />}
+      {showPron && s.pronunciation && <PronunciationCard clips={[]} transcript={r.retell} result={s.pronunciation} title="🗣️ Pronunciation (your retell)" />}
       {r.tip && <p className="rounded-lg bg-blue-50 p-2.5 text-sm text-blue-900 dark:bg-blue-950/50 dark:text-blue-100">💡 <b>Tip:</b> {r.tip}</p>}
       {r.modelRetell && (
         <div>
