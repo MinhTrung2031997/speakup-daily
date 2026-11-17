@@ -253,7 +253,15 @@ try {
   await clickIn('[role="tab"]', 'Answered');
   await sleep(300);
   let n = await page.evaluate(() => [...document.querySelectorAll('[data-daily]')].map((r) => r.innerText));
-  ok('filter: Answered', n.length >= 1 && n.every((t) => /Answered|answers/.test(t)) && n.length === rows.filter((t) => /Answered|answers/.test(t)).length, `${n.length} rows`);
+  // 10 rows per page, then "Show more"
+  const more = await page.evaluate(() => [...document.querySelectorAll('button')].find((b) => b.textContent.startsWith('Show more'))?.textContent || '');
+  ok('filter: Answered (paged)', n.length >= 1 && n.length <= 10 && n.every((t) => /Answered|answers/.test(t)) && (n.length < 10 ? !more : !!more), `${n.length} rows${more ? `, ${more}` : ''}`);
+  if (more) {
+    await clickText('Show more');
+    await sleep(300);
+    const m = await page.evaluate(() => document.querySelectorAll('[data-daily]').length);
+    ok('Show more loads the next page', m > n.length, `${n.length} -> ${m}`);
+  }
   await clickIn('[role="tab"]', 'Suggested only');
   await sleep(300);
   n = await page.evaluate(() => [...document.querySelectorAll('[data-daily]')].map((r) => r.innerText));
