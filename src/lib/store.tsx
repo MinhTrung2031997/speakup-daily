@@ -1,11 +1,12 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import type { AppState, Phrase, PhraseItem, PronunciationResult, PronWord, ShadowAttemptInput, SoundItem } from './types';
+import type { AppState, Phrase, PhraseItem, PronunciationResult, PronWord, RecordingItem, ShadowAttemptInput, SoundItem } from './types';
+import type { AudioClip } from './audio';
 import { addDays, todayStr, uid } from './date';
 import { MASTERED_STAGE, initialDue } from './srs';
 import { cleanPhrase } from './diff';
 import { setDemoMode } from './gemini';
 import { supabase } from './supabase';
-import { DEFAULT_PROFILE, PRESET_TOPICS, importLegacy, loadState, resetAll, saveShadowAttempt, saveShadowPronunciation, syncChanges, type ImportSummary } from './db';
+import { DEFAULT_PROFILE, PRESET_TOPICS, importLegacy, loadState, resetAll, saveShadowAttempt, saveShadowPronunciation, syncChanges, uploadRecording, setRecordingStarred, deleteRecordingItem, type ImportSummary, type RecordingMeta } from './db';
 
 export { PRESET_TOPICS };
 
@@ -25,6 +26,7 @@ export function defaultState(): AppState {
     chats: [],
     listens: [],
     sounds: [],
+    recordings: [],
     shadowPron: [],
     speakingLog: {},
     activityLog: {},
@@ -48,6 +50,7 @@ export function normalizeState(raw: unknown): AppState {
     chats: Array.isArray(r.chats) ? r.chats : [],
     listens: Array.isArray(r.listens) ? r.listens : [],
     sounds: Array.isArray(r.sounds) ? r.sounds : [],
+    recordings: Array.isArray(r.recordings) ? r.recordings : [],
     shadowPron: Array.isArray(r.shadowPron) ? r.shadowPron : [],
     speakingLog: r.speakingLog && typeof r.speakingLog === 'object' ? r.speakingLog : {},
     activityLog: r.activityLog && typeof r.activityLog === 'object' ? r.activityLog : {},
@@ -82,6 +85,13 @@ interface Store {
   saveShadow: (a: ShadowAttemptInput) => void;
   /** Attach a pronunciation check to a shadowing take saved with saveShadow({ id }). */
   saveShadowPron: (id: string, p: PronunciationResult) => void;
+  /**
+   * Save mic clips of an answer / retry / retell in the background (each clip once). Never throws:
+   * resolves to how many clips could not be saved (the answer itself is saved either way).
+   */
+  saveRecordings: (clips: AudioClip[], meta: RecordingMeta) => Promise<number>;
+  toggleStar: (id: string) => void;
+  removeRecording: (id: string) => Promise<void>;
   /** Add / bump problem words in "Sounds to fix". Returns how many were new. */
   addSounds: (words: PronWord[]) => number;
   /** Copy a backup / old browser data into the database, then reload. */
@@ -212,12 +222,49 @@ export function StoreProvider({ userId, email, children }: { userId: string; ema
 
   const shadowSaves = useRef(new Map<string, Promise<void>>());
   const saveShadow = useCallback((a: ShadowAttemptInput) => {
-    const run = saveShadowAttempt(userId, a).catch((e) => {
+    const run = saveShadowAttempt(userId, a).then((rec) => {
+      if (rec) update((s) => ({ ...s, recordings: [...s.recordings, rec] }));
+    }).catch((e) => {
       console.error(e);
       setSaveError(`A shadowing attempt was not saved (${e instanceof Error ? e.message : String(e)}).`);
     });
     if (a.id) shadowSaves.current.set(a.id, run);
-  }, [userId]);
+  }, [userId, update]);
+
+  // Each clip is uploaded once, even if the answer is upgraded / scored again.
+  const uploaded = useRef(new WeakSet<Blob>());
+  const saveRecordings = useCallback(async (clips: AudioClip[], meta: RecordingMeta) => {
+    let failed = 0;
+    for (const c of clips) {
+      if (uploaded.current.has(c.blob)) continue;
+      uploaded.current.add(c.blob);
+      try {
+        const rec = await uploadRecording(userId, c, meta);
+        update((s) => ({ ...s, recordings: [...s.recordings, rec] }));
+      } catch (e) {
+        console.warn('Recording not saved:', e);
+        uploaded.current.delete(c.blob);
+        failed++;
+      }
+    }
+    return failed;
+  }, [userId, update]);
+
+  const toggleStar = useCallback((id: string) => {
+    const cur = stateRef.current?.recordings.find((r) => r.id === id);
+    if (!cur) return;
+    const starred = !cur.starred;
+    const set = (v: boolean) => update((s) => ({ ...s, recordings: s.recordings.map((r) => (r.id === id ? { ...r, starred: v } : r)) }));
+    set(starred);
+    setRecordingStarred(id, starred).catch((e) => { console.error(e); set(!starred); setSaveError('Could not update the star. Please try again.'); });
+  }, [update]);
+
+  const removeRecording = useCallback(async (id: string) => {
+    const cur = stateRef.current?.recordings.find((r) => r.id === id);
+    if (!cur) return;
+    await deleteRecordingItem(cur as RecordingItem);
+    update((s) => ({ ...s, recordings: s.recordings.filter((r) => r.id !== id) }));
+  }, [update]);
 
   const saveShadowPron = useCallback((id: string, p: PronunciationResult) => {
     update((s) => ({ ...s, shadowPron: [...s.shadowPron.filter((x) => x.id !== id), { id, score: p.score, createdAt: p.createdAt }] }));
@@ -291,8 +338,8 @@ export function StoreProvider({ userId, email, children }: { userId: string; ema
   }, [flush]);
 
   const value = useMemo(
-    () => (state ? { state, userId, email, update, addSpeaking, logActivity, addPhrases, saveShadow, saveShadowPron, addSounds, importData, dismissBrowserImport, legacy, resetData, reload: load, signOut, saving, saveError } : null),
-    [state, userId, email, update, addSpeaking, logActivity, addPhrases, saveShadow, saveShadowPron, addSounds, importData, dismissBrowserImport, legacy, resetData, load, signOut, saving, saveError],
+    () => (state ? { state, userId, email, update, addSpeaking, logActivity, addPhrases, saveShadow, saveShadowPron, saveRecordings, toggleStar, removeRecording, addSounds, importData, dismissBrowserImport, legacy, resetData, reload: load, signOut, saving, saveError } : null),
+    [state, userId, email, update, addSpeaking, logActivity, addPhrases, saveShadow, saveShadowPron, saveRecordings, toggleStar, removeRecording, addSounds, importData, dismissBrowserImport, legacy, resetData, load, signOut, saving, saveError],
   );
 
   if (!value) {

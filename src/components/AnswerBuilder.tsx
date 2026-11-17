@@ -11,6 +11,7 @@ import PronunciationCard from './PronunciationCard';
 import type { SpeechSample } from '../lib/speech';
 import type { BuilderInfo, BuilderLength, BuilderLevel, Entry, PronunciationResult, QuestionType } from '../lib/types';
 import BuilderResult from './BuilderResult';
+import { RecordingList } from './RecordingPlayer';
 import FluencyCard from './FluencyCard';
 import MicInput from './MicInput';
 import RetryCard from './RetryCard';
@@ -47,7 +48,8 @@ function Step({ n, title, children, right }: { n: number; title: string; childre
 
 /** "Answer builder": topic + question type -> question -> idea chips -> model answer -> say it your way. */
 export default function AnswerBuilder() {
-  const { state, update, addPhrases, logActivity } = useStore();
+  const { state, update, addPhrases, logActivity, saveRecordings } = useStore();
+  const [recNote, setRecNote] = useState('');
   const ai = useAIConfig();
   const topics = useMemo(() => {
     const active = state.topics.filter((t) => t.active);
@@ -243,6 +245,11 @@ export default function AnswerBuilder() {
       const r = await scoreRetry(ai, entry.question, entry.upgrade.natural, entry.upgrade.phrases.map((p) => p.phrase), attempt.trim(), structure, 'builder-retry');
       const next: Entry = { ...entry, answer: attempt.trim(), retry: r, ...(fluency ? { fluency } : {}), pronunciation: pron };
       update((s) => ({ ...s, entries: s.entries.map((x) => (x.id === entry.id ? next : x)) }));
+      if (clips.length) {
+        setRecNote('');
+        saveRecordings(clips, { kind: 'builder', answerId: entry.id, questionType: entry.builder?.qtype })
+          .then((failed) => failed && setRecNote('🎙️ Recording not saved. Your try and scores are saved.'));
+      }
       logActivity();
       setPractice(false);
     } catch (e) {
@@ -424,6 +431,8 @@ export default function AnswerBuilder() {
                 <>
                   {entry.fluency && <FluencyCard stats={entry.fluency} title="📈 Fluency (your try)" />}
                   <RetryCard entry={entry} />
+                  <RecordingList recs={state.recordings.filter((r) => r.answerId === entry.id)} title="🎧 Your tries" />
+                  {recNote && <p className="muted text-xs" data-testid="rec-note">{recNote}</p>}
                   {(entry.pronunciation || clips.length > 0) && (
                     <PronunciationCard clips={attempt.trim() === entry.answer.trim() ? clips : []} transcript={entry.answer} result={entry.pronunciation} onResult={onSavedPron} context="saying a prepared answer in their own words" title="🗣️ Pronunciation (your try)" />
                   )}

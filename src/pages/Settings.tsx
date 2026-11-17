@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import { useStore, normalizeState } from '../lib/store';
+import RecordingPlayer from '../components/RecordingPlayer';
 import { testKey } from '../lib/ai';
 import { errorText } from '../lib/gemini';
 import { useEnglishVoices, speak, ttsSupported, speechRecognitionSupported } from '../lib/speech';
@@ -144,6 +145,8 @@ export default function Settings() {
         {importMsg && <p className="text-sm">{importMsg}</p>}
       </section>
 
+      <RecordingsCard />
+
       <section className="card space-y-3">
         <h2 className="h-section">⚠️ Danger zone</h2>
         <div className="flex flex-wrap gap-2">
@@ -153,5 +156,35 @@ export default function Settings() {
       </section>
       <p className="pb-4 text-center text-xs text-slate-400">SpeakUp Daily · your practice is saved to your account</p>
     </div>
+  );
+}
+
+const FREE_BYTES = 1024 * 1024 * 1024; // Supabase free plan: 1 GB of file storage
+
+/** Storage use of saved recordings (kept permanently) + a list to play / star / delete them. */
+function RecordingsCard() {
+  const { state } = useStore();
+  const [shown, setShown] = useState(10);
+  const recs = [...state.recordings].sort((a, b) => b.createdAt - a.createdAt);
+  const bytes = recs.reduce((n, r) => n + (r.bytes || 0), 0);
+  const mb = bytes / 1024 / 1024;
+  const pct = Math.min(100, (bytes / FREE_BYTES) * 100);
+  const starred = recs.filter((r) => r.starred).length;
+  return (
+    <section className="card space-y-3" data-testid="recordings-card">
+      <h2 className="h-section">🎧 Recordings</h2>
+      <p className="text-sm" data-testid="storage-line">Recordings: {recs.length}, about {mb < 0.1 && bytes > 0 ? '0.1' : mb.toFixed(1)} MB of 1 GB{starred ? ` · ⭐ ${starred} starred` : ''}</p>
+      <div className="h-1.5 rounded-full bg-slate-200 dark:bg-slate-700"><div className="h-full rounded-full bg-blue-600 dark:bg-blue-400" style={{ width: `${Math.max(pct, bytes ? 0.5 : 0)}%` }} /></div>
+      <p className="muted text-xs">Your answer, retell and shadowing recordings are kept permanently (small Opus files, about 3 KB per second). Tap ⭐ to mark favourites, or delete any you don't need. Transcripts and scores stay either way.</p>
+      {recs.length > 0 && (
+        <details>
+          <summary className="cursor-pointer text-sm font-medium text-blue-600 dark:text-blue-400">Manage recordings</summary>
+          <div className="mt-2 space-y-1.5">
+            {recs.slice(0, shown).map((r) => <RecordingPlayer key={r.id} rec={r} compact />)}
+            {recs.length > shown && <button className="btn-soft w-full justify-center" onClick={() => setShown((n) => n + 10)}>Show more ({recs.length - shown} left)</button>}
+          </div>
+        </details>
+      )}
+    </section>
   );
 }

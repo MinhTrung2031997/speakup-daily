@@ -16,7 +16,7 @@ import { isUuid, todayStr, uid } from './date';
 import { getDemoMode } from './gemini';
 import type {
   AppState, BuilderInfo, ListenSession, ChatFeedback, ChatMessage, ChatSession, DailyQuestion, Entry, FluencyStats, Phrase, Profile,
-  PronunciationResult, RetryResult, ReviewLog, Settings, ShadowAttemptInput, SoundItem, SuggestedAnswer, Topic, Upgrade,
+  PronunciationResult, RecordingItem, RecordingKind, RetryResult, ReviewLog, Settings, ShadowAttemptInput, SoundItem, SuggestedAnswer, Topic, Upgrade,
 } from './types';
 
 export const PRESET_TOPICS: Topic[] = [
@@ -285,7 +285,7 @@ export async function loadState(userId: string): Promise<AppState> {
   check(profileR, 'Load profile');
   check(settingsR, 'Load settings');
 
-  const [topics, questions, answers, fluency, phrases, reviews, chats, messages, activity, listens, sounds, shadowPron] = await Promise.all([
+  const [topics, questions, answers, fluency, phrases, reviews, chats, messages, activity, listens, sounds, shadowPron, recordings] = await Promise.all([
     fetchAll<{ id: string; slug: string; name: string; emoji: string; active: boolean; is_custom: boolean; sort_order: number }>('topics', 'id,slug,name,emoji,active,is_custom,sort_order', 'sort_order'),
     fetchAll<{ id: string; topic_id: string | null; topic_name: string; question: string; starters: string[]; suggested?: Json; question_date: string; created_at: string }>('daily_questions', 'id,topic_id,topic_name,question,starters,suggested,question_date,created_at', 'created_at')
       .catch(() => fetchAll<{ id: string; topic_id: string | null; topic_name: string; question: string; starters: string[]; suggested?: Json; question_date: string; created_at: string }>('daily_questions', 'id,topic_id,topic_name,question,starters,question_date,created_at', 'created_at')),
@@ -305,6 +305,7 @@ export async function loadState(userId: string): Promise<AppState> {
       'pronunciation_items', 'id,word,note,ipa,issue,heard,times_seen,last_seen,stage,next_review,created_at', 'created_at',
     ).catch(() => []),
     fetchAll<{ id: string; created_at: string; pron_score: unknown }>('shadowing_attempts', 'id,created_at,pron_score:pronunciation->score', 'created_at').catch(() => []),
+    fetchAll<RecordingRow>('recordings', RECORDING_COLS, 'created_at').catch(() => []),
   ]);
 
   topicIds.clear();
@@ -388,6 +389,7 @@ export async function loadState(userId: string): Promise<AppState> {
       id: x.id, word: x.word, note: x.note, ipa: x.ipa, issue: x.issue, heard: x.heard, timesSeen: x.times_seen,
       lastSeen: x.last_seen, stage: x.stage, due: x.next_review, createdAt: ms(x.created_at),
     })),
+    recordings: recordings.map(recordingFromRow),
     shadowPron: shadowPron
       .filter((x) => x.pron_score != null && Number.isFinite(Number(x.pron_score)))
       .map((x) => ({ id: x.id, score: Number(x.pron_score), createdAt: ms(x.created_at) })),
@@ -523,9 +525,10 @@ export async function syncChanges(userId: string, prev: AppState, next: AppState
 // ---------------------------------------------------------------------------
 const EXT: Record<string, string> = { 'audio/webm': 'webm', 'audio/ogg': 'ogg', 'audio/mp4': 'm4a', 'audio/mpeg': 'mp3', 'audio/wav': 'wav', 'audio/aac': 'aac' };
 
-export async function saveShadowAttempt(userId: string, a: ShadowAttemptInput): Promise<void> {
+export async function saveShadowAttempt(userId: string, a: ShadowAttemptInput): Promise<RecordingItem | null> {
   const id = a.id && isUuid(a.id) ? a.id : uid();
   let recording_path: string | null = null;
+  let shadowRec: RecordingItem | null = null;
   if (a.audioUrl) {
     try {
       const blob = await (await fetch(a.audioUrl)).blob();
@@ -533,8 +536,10 @@ export async function saveShadowAttempt(userId: string, a: ShadowAttemptInput): 
       if (blob.size > 0 && blob.size < 10 * 1024 * 1024) {
         const path = `${userId}/shadowing/${todayStr()}/${id}.${EXT[type] || 'webm'}`;
         const up = await supabase.storage.from('recordings').upload(path, blob, { contentType: type, upsert: false });
-        if (!up.error) recording_path = path;
-        else console.warn('Recording upload failed:', up.error.message);
+        if (!up.error) {
+          recording_path = path;
+          shadowRec = { id: uid(), kind: 'shadowing', path, mimeType: type, seconds: Math.max(0, num(a.seconds)), bytes: blob.size, starred: false, createdAt: Date.now() };
+        } else console.warn('Recording upload failed:', up.error.message);
       }
     } catch (e) {
       console.warn('Recording upload failed:', e);
@@ -551,6 +556,89 @@ export async function saveShadowAttempt(userId: string, a: ShadowAttemptInput): 
     duration_seconds: clamp(num(a.seconds), 0, 99999),
     recording_path,
   }), 'Save shadowing attempt');
+  // Also list the take in `recordings` (play back / star / storage use). Best effort.
+  if (shadowRec) {
+    const r = await supabase.from('recordings').insert(recordingRow(userId, shadowRec));
+    if (r.error) { console.warn('Recording row not saved:', r.error.message); return null; }
+  }
+  return shadowRec;
+}
+
+// ---------------------------------------------------------------------------
+// Answer recordings (kept permanently; ⭐ = favourite)
+// ---------------------------------------------------------------------------
+type RecordingRow = {
+  id: string; kind: string; answer_id: string | null; question_id: string | null; listening_id: string | null; question_type: string | null;
+  path: string; mime_type: string; duration_seconds: number | string; bytes: number; starred: boolean; created_at: string;
+};
+const RECORDING_COLS = 'id,kind,answer_id,question_id,listening_id,question_type,path,mime_type,duration_seconds,bytes,starred,created_at';
+const uuidOrNull = (v?: string) => (v && isUuid(v) ? v : null);
+
+function recordingFromRow(r: RecordingRow): RecordingItem {
+  return {
+    id: r.id, kind: r.kind as RecordingKind, path: r.path, mimeType: r.mime_type, seconds: Number(r.duration_seconds) || 0, bytes: r.bytes || 0,
+    starred: !!r.starred, createdAt: ms(r.created_at),
+    ...(r.answer_id ? { answerId: r.answer_id } : {}), ...(r.question_id ? { questionId: r.question_id } : {}),
+    ...(r.listening_id ? { listeningId: r.listening_id } : {}), ...(r.question_type ? { questionType: r.question_type } : {}),
+  };
+}
+
+function recordingRow(userId: string, r: RecordingItem) {
+  return {
+    id: r.id, user_id: userId, kind: r.kind, answer_id: uuidOrNull(r.answerId), question_id: uuidOrNull(r.questionId), listening_id: uuidOrNull(r.listeningId),
+    question_type: r.questionType || null, path: r.path, mime_type: r.mimeType, duration_seconds: clamp(Math.round(num(r.seconds) * 100) / 100, 0, 99999),
+    bytes: Math.max(0, Math.round(r.bytes)), starred: r.starred, created_at: ts(r.createdAt),
+  };
+}
+
+export interface RecordingMeta { kind: RecordingKind; answerId?: string; questionId?: string; listeningId?: string; questionType?: string }
+
+const sleep = (msec: number) => new Promise((r) => setTimeout(r, msec));
+
+/** Upload one clip + its row. Retries once; throws if it still fails (the answer itself is already saved). */
+export async function uploadRecording(userId: string, clip: { blob: Blob; mimeType: string; seconds: number }, meta: RecordingMeta): Promise<RecordingItem> {
+  const type = (clip.mimeType || clip.blob.type || 'audio/webm').split(';')[0];
+  if (!clip.blob.size || clip.blob.size > 10 * 1024 * 1024) throw new Error('Recording is empty or too large');
+  const id = uid();
+  const path = `${userId}/${meta.kind}/${todayStr()}/${id}.${EXT[type] || 'webm'}`;
+  const item: RecordingItem = { id, ...meta, path, mimeType: type, seconds: clip.seconds, bytes: clip.blob.size, starred: false, createdAt: Date.now() };
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (attempt) await sleep(1500);
+    try {
+      const up = await supabase.storage.from('recordings').upload(path, clip.blob, { contentType: type, upsert: true });
+      if (up.error) throw new Error(up.error.message);
+      const row = await supabase.from('recordings').upsert(recordingRow(userId, item));
+      if (row.error) throw new Error(row.error.message);
+      return item;
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
+}
+
+export async function setRecordingStarred(id: string, starred: boolean): Promise<void> {
+  check(await supabase.from('recordings').update({ starred }).eq('id', id), 'Star recording');
+}
+
+/** Delete the audio (Storage API) and its row. */
+export async function deleteRecordingItem(r: RecordingItem): Promise<void> {
+  const rm = await supabase.storage.from('recordings').remove([r.path]);
+  if (rm.error) throw new Error(`Delete recording: ${rm.error.message}`);
+  check(await supabase.from('recordings').delete().eq('id', r.id), 'Delete recording');
+  if (r.kind === 'shadowing') await supabase.from('shadowing_attempts').update({ recording_path: null }).eq('recording_path', r.path);
+}
+
+const signed = new Map<string, { url: string; until: number }>();
+/** Short-lived signed URL for playback (cached for ~50 minutes). */
+export async function recordingUrl(path: string): Promise<string> {
+  const c = signed.get(path);
+  if (c && c.until > Date.now()) return c.url;
+  const r = await supabase.storage.from('recordings').createSignedUrl(path, 3600);
+  if (r.error || !r.data?.signedUrl) throw new Error(r.error?.message || 'No playback URL');
+  signed.set(path, { url: r.data.signedUrl, until: Date.now() + 50 * 60 * 1000 });
+  return r.data.signedUrl;
 }
 
 /** Attach a pronunciation check to a saved shadowing attempt. */
@@ -691,21 +779,23 @@ export async function importLegacy(userId: string, legacy: AppState, current: Ap
 // ---------------------------------------------------------------------------
 export async function resetAll(userId: string): Promise<void> {
   // Children cascade: answers -> fluency_stats, phrases -> phrase_reviews, chat_sessions -> chat_messages.
-  for (const t of ['shadowing_attempts', 'fluency_stats', 'answers', 'phrases', 'chat_sessions', 'daily_questions', 'daily_activity', 'listening_sessions', 'pronunciation_items'] as const) {
+  for (const t of ['recordings', 'shadowing_attempts', 'fluency_stats', 'answers', 'phrases', 'chat_sessions', 'daily_questions', 'daily_activity', 'listening_sessions', 'pronunciation_items'] as const) {
     check(await supabase.from(t).delete().eq('user_id', userId), `Delete ${t}`);
   }
   check(await supabase.from('topics').delete().eq('user_id', userId).eq('is_custom', true), 'Delete custom topics');
   check(await supabase.from('topics').upsert(topicRows(userId, PRESET_TOPICS), { onConflict: 'user_id,slug' }), 'Reset topics');
   check(await supabase.from('profiles').upsert({ user_id: userId, ...DEFAULT_PROFILE }), 'Reset profile');
   check(await supabase.from('user_settings').upsert({ user_id: userId, onboarded: false }), 'Reset settings');
-  // Recordings (best effort)
-  try {
-    const folder = `${userId}/shadowing`;
-    const { data: days } = await supabase.storage.from('recordings').list(folder, { limit: 1000 });
-    for (const d of days || []) {
-      const { data: files } = await supabase.storage.from('recordings').list(`${folder}/${d.name}`, { limit: 1000 });
-      const paths = (files || []).map((f) => `${folder}/${d.name}/${f.name}`);
-      if (paths.length) await supabase.storage.from('recordings').remove(paths);
-    }
-  } catch { /* ignore */ }
+  // Recordings (best effort): every '<user_id>/<kind>/<date>/<file>' object.
+  for (const kind of ['shadowing', 'answer', 'retry', 'builder', 'retell']) {
+    try {
+      const folder = `${userId}/${kind}`;
+      const { data: days } = await supabase.storage.from('recordings').list(folder, { limit: 1000 });
+      for (const d of days || []) {
+        const { data: files } = await supabase.storage.from('recordings').list(`${folder}/${d.name}`, { limit: 1000 });
+        const paths = (files || []).map((f) => `${folder}/${d.name}/${f.name}`);
+        if (paths.length) await supabase.storage.from('recordings').remove(paths);
+      }
+    } catch { /* ignore */ }
+  }
 }

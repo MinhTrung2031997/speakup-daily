@@ -41,7 +41,8 @@ export function useClipRecorder(enabled: boolean) {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         streamRef.current = stream;
         const mime = pickMime();
-        const mr = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+        // Opus ~24 kbps: clear speech, ~3 KB/s, so a 45s answer is ~140 KB.
+        const mr = new MediaRecorder(stream, { ...(mime ? { mimeType: mime } : {}), audioBitsPerSecond: 24000 });
         chunks.current = [];
         mr.ondataavailable = (e) => e.data.size && chunks.current.push(e.data);
         mrRef.current = mr;

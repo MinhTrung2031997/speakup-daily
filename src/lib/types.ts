@@ -196,10 +196,30 @@ export interface AppState {
   chats: ChatSession[];
   listens: ListenSession[];
   sounds: SoundItem[];
+  /** Saved mic recordings (recordings table + private bucket), oldest first. Kept permanently. */
+  recordings: RecordingItem[];
   /** Pronunciation scores of shadowing takes (read-only, for Progress). */
   shadowPron: { id: string; score: number; createdAt: number }[];
   speakingLog: Record<string, number>; // date -> seconds spoken
   activityLog: Record<string, number>; // date -> count of practice actions
+}
+
+export type RecordingKind = 'answer' | 'retry' | 'builder' | 'retell' | 'shadowing';
+
+/** One saved mic clip (Opus/WebM in the private `recordings` bucket at `<user_id>/<kind>/<date>/<id>.webm`). */
+export interface RecordingItem {
+  id: string;
+  kind: RecordingKind;
+  answerId?: string;
+  questionId?: string;
+  listeningId?: string;
+  questionType?: string;
+  path: string;
+  mimeType: string;
+  seconds: number;
+  bytes: number;
+  starred: boolean;
+  createdAt: number;
 }
 
 /** One shadowing take, saved to the shadowing_attempts table (recording optional). */

@@ -575,6 +575,54 @@ export type Database = {
         }
         Relationships: []
       }
+      recordings: {
+        Row: {
+          answer_id: string | null
+          bytes: number
+          created_at: string
+          duration_seconds: number
+          id: string
+          kind: string
+          listening_id: string | null
+          mime_type: string
+          path: string
+          question_id: string | null
+          question_type: string | null
+          starred: boolean
+          user_id: string
+        }
+        Insert: {
+          answer_id?: string | null
+          bytes?: number
+          created_at?: string
+          duration_seconds?: number
+          id?: string
+          kind: string
+          listening_id?: string | null
+          mime_type?: string
+          path: string
+          question_id?: string | null
+          question_type?: string | null
+          starred?: boolean
+          user_id?: string
+        }
+        Update: {
+          answer_id?: string | null
+          bytes?: number
+          created_at?: string
+          duration_seconds?: number
+          id?: string
+          kind?: string
+          listening_id?: string | null
+          mime_type?: string
+          path?: string
+          question_id?: string | null
+          question_type?: string | null
+          starred?: boolean
+          user_id?: string
+        }
+        Relationships: []
+      }
       shadowing_attempts: {
         Row: {
           answer_id: string | null

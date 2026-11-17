@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useStore } from '../lib/store';
 import { todaysQuestion, useAIConfig } from '../lib/hooks';
-import { generateQuestion, scoreRetry, upgradeAnswer } from '../lib/ai';
+import { generateQuestion, inferQuestionType, scoreRetry, upgradeAnswer } from '../lib/ai';
 import { errorText } from '../lib/gemini';
 import { prettyDate, todayStr, uid } from '../lib/date';
 import { isDue } from '../lib/srs';
@@ -19,6 +19,7 @@ import { ShadowCard } from '../components/ShadowPractice';
 import RetryCard from '../components/RetryCard';
 import AnswerBuilder from '../components/AnswerBuilder';
 import SuggestedAnswer, { reusedPhrases } from '../components/SuggestedAnswer';
+import { RecordingList } from '../components/RecordingPlayer';
 import { ErrorBox, Spinner } from '../components/ui';
 import Icon from '../components/Icon';
 
@@ -31,7 +32,7 @@ function greeting() {
 }
 
 export default function Today() {
-  const { state, update, addPhrases, logActivity } = useStore();
+  const { state, update, addPhrases, logActivity, saveRecordings } = useStore();
   const ai = useAIConfig();
   const q = todaysQuestion(state);
   const entry = q ? [...state.entries].reverse().find((e) => e.questionId === q.id) : undefined;
@@ -52,6 +53,7 @@ export default function Today() {
   const [attemptClips, setAttemptClips] = useState<AudioClip[]>([]);
   const [answerPron, setAnswerPron] = useState<PronunciationResult>();
   const [showSuggested, setShowSuggested] = useState(false);
+  const [recNote, setRecNote] = useState('');
   const [attemptPron, setAttemptPron] = useState<PronunciationResult>();
   const autoTried = useRef(false);
   const [mode, setMode] = useState<'daily' | 'builder'>(() => {
@@ -156,6 +158,12 @@ export default function Today() {
         ? { ...entry, answer: answer.trim(), upgrade: up, retry: undefined, fluency, pronunciation }
         : { id: uid(), date: todayStr(), questionId: q.id, question: q.question, topicName: q.topicName, answer: answer.trim(), upgrade: up, fluency, pronunciation, createdAt: Date.now() };
       update((s) => ({ ...s, entries: entry ? s.entries.map((x) => (x.id === e.id ? e : x)) : [...s.entries, e] }));
+      // Keep the recording (background; never blocks saving the answer).
+      if (answerClips.length) {
+        setRecNote('');
+        saveRecordings(answerClips, { kind: 'answer', answerId: e.id, questionId: q.id, questionType: inferQuestionType(q.question) })
+          .then((failed) => failed && setRecNote('🎙️ Recording not saved. Your answer and scores are saved.'));
+      }
       const n = addPhrases(up.phrases, q.question);
       logActivity();
       setSavedMsg(n ? `Saved ${n} new phrase${n > 1 ? 's' : ''} to your Phrase Bank.` : 'These phrases are already in your Phrase Bank.');
@@ -178,6 +186,11 @@ export default function Today() {
       if (attemptFluency) r.fluency = attemptFluency;
       if (attemptPron) r.pronunciation = attemptPron;
       update((s) => ({ ...s, entries: s.entries.map((x) => (x.id === entry.id ? { ...x, retry: r } : x)) }));
+      if (attemptClips.length) {
+        setRecNote('');
+        saveRecordings(attemptClips, { kind: 'retry', answerId: entry.id, questionId: entry.questionId || undefined, questionType: inferQuestionType(entry.question) })
+          .then((failed) => failed && setRecNote('🎙️ Recording not saved. Your try and scores are saved.'));
+      }
       logActivity();
       setPractice(false);
     } catch (e) {
@@ -279,6 +292,8 @@ export default function Today() {
             </div>
           )}
           {savedMsg && <p className="text-sm text-emerald-600 dark:text-emerald-300">✅ {savedMsg}</p>}
+          {entry && <RecordingList recs={state.recordings.filter((r) => r.answerId === entry.id && r.kind === 'answer')} />}
+          {recNote && <p className="muted text-xs" data-testid="rec-note">{recNote}</p>}
           <ErrorBox error={upError} onRetry={doUpgrade} />
         </section>
       )}
@@ -314,6 +329,7 @@ export default function Today() {
               </>
             )}
             {entry.retry && !practice && <RetryCard entry={entry} />}
+            {!practice && <RecordingList recs={state.recordings.filter((r) => r.answerId === entry.id && r.kind === 'retry')} title="🎧 Your tries" />}
             {entry.retry && !practice && (entry.retry.pronunciation || attemptClips.length > 0) && (
               <PronunciationCard clips={attempt.trim() === entry.retry.attempt?.trim() ? attemptClips : []} transcript={entry.retry.attempt || attempt} result={entry.retry.pronunciation} onResult={onRetryPron} context="saying their answer again in their own words" title="🗣️ Pronunciation (your try)" />
             )}

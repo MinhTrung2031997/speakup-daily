@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { RecordingList } from '../components/RecordingPlayer';
 import { useStore } from '../lib/store';
 import { useAIConfig } from '../lib/hooks';
 import { listenDrill, scoreRetell } from '../lib/ai';
@@ -91,7 +92,8 @@ function useDialoguePlayer(accent: Accent) {
 }
 
 export default function Listen() {
-  const { state, update, logActivity } = useStore();
+  const { state, update, logActivity, saveRecordings } = useStore();
+  const [recNote, setRecNote] = useState('');
   const ai = useAIConfig();
   const [prefs, setPrefsState] = useState<Prefs>(loadPrefs);
   const setPrefs = (p: Partial<Prefs>) => setPrefsState((cur) => {
@@ -211,6 +213,11 @@ export default function Listen() {
       const r = await scoreRetell(ai, d, retell.trim());
       if (fluency) r.fluency = fluency;
       save({ retell: r, ...(pron ? { pronunciation: pron } : {}) });
+      if (clips.length && session) {
+        setRecNote('');
+        saveRecordings(clips, { kind: 'retell', listeningId: session.id })
+          .then((failed) => failed && setRecNote('🎙️ Recording not saved. Your retell and score are saved.'));
+      }
       setTimeLeft(null);
       logActivity();
     } catch (e) {
@@ -393,6 +400,7 @@ export default function Listen() {
                     </>
                   )}
                   <ErrorBox error={retellError} onRetry={doRetell} />
+                  {recNote && <p className="muted text-xs" data-testid="rec-note">{recNote}</p>}
                 </>
               )}
             </Step>
@@ -434,6 +442,7 @@ export function ListenBadges({ s }: { s: ListenSession }) {
 }
 
 export function RetellCard({ s, showPron = true }: { s: ListenSession; showPron?: boolean }) {
+  const { state } = useStore();
   const r = s.retell!;
   return (
     <div className="space-y-3">
@@ -450,6 +459,7 @@ export function RetellCard({ s, showPron = true }: { s: ListenSession; showPron?
       </div>
       {r.phrasesUsed.length > 0 && <p className="text-sm">💬 Phrases you used: {r.phrasesUsed.map((p) => <mark key={p} className="mark-phrase mr-1">{p}</mark>)}</p>}
       <p className="rounded-lg bg-slate-50 p-2.5 text-sm text-slate-600 dark:bg-slate-800/60 dark:text-slate-300">“{r.retell}”</p>
+      <RecordingList recs={state.recordings.filter((x) => x.listeningId === s.id)} title="🎧 Your retell recording" />
       {r.fluency && <FluencyCard stats={r.fluency} title="📈 Fluency (your retell)" />}
       {showPron && s.pronunciation && <PronunciationCard accent={s.accent} clips={[]} transcript={r.retell} result={s.pronunciation} title="🗣️ Pronunciation (your retell)" />}
       {r.tip && <p className="rounded-lg bg-blue-50 p-2.5 text-sm text-blue-900 dark:bg-blue-950/50 dark:text-blue-100">💡 <b>Tip:</b> {r.tip}</p>}

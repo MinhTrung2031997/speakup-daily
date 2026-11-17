@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import SuggestedAnswer, { reusedPhrases } from '../components/SuggestedAnswer';
+import { CompareRecordings, RecordingList } from '../components/RecordingPlayer';
 import { useStore } from '../lib/store';
 import { prettyDate } from '../lib/date';
 import type { DailyQuestion, Entry } from '../lib/types';
@@ -20,7 +21,7 @@ export default function History() {
   const urlTab = params.get('tab');
   const [tab, setTabState] = useState<'daily' | 'answers' | 'chats' | 'listening'>(urlTab === 'daily' || urlTab === 'chats' || urlTab === 'listening' ? urlTab : 'answers');
   const setTab = (t: typeof tab) => { setTabState(t); setParams(t === 'answers' ? {} : { tab: t }, { replace: true }); };
-  const [dailyFilter, setDailyFilter] = useState<'all' | 'answered' | 'suggested'>('all');
+  const [dailyFilter, setDailyFilter] = useState<'all' | 'answered' | 'suggested' | 'starred'>('all');
   const [dailyShown, setDailyShown] = useState(10);
   const [query, setQuery] = useState('');
   const [topic, setTopic] = useState('');
@@ -50,6 +51,7 @@ export default function History() {
       .filter((l) => (!topic || l.topic === topic) && (!date || l.date === date) && (!q || [l.drill.title, ...l.drill.lines.map((x) => x.text)].some((t) => t.toLowerCase().includes(q))));
   }, [state.listens, query, topic, date]);
 
+  const starredAnswers = useMemo(() => new Set(state.recordings.filter((r) => r.starred && r.answerId).map((r) => r.answerId!)), [state.recordings]);
   // Daily questions with a suggested answer and/or his own answer, newest first. Answers link by
   // question id (answers.question_id); old rows without one fall back to the same question text.
   const daily = useMemo(() => {
@@ -58,9 +60,9 @@ export default function History() {
       .sort((a, b) => (b.date === a.date ? b.createdAt - a.createdAt : b.date.localeCompare(a.date)))
       .map((dq) => ({ q: dq, answers: state.entries.filter((e) => !e.builder && (e.questionId === dq.id || (!e.questionId && e.question === dq.question))).sort((a, b) => a.createdAt - b.createdAt) }))
       .filter(({ q: dq, answers }) => answers.length > 0 || (dq.suggestions?.length || 0) > 0)
-      .filter(({ answers }) => dailyFilter === 'all' || (dailyFilter === 'answered' ? answers.length > 0 : answers.length === 0))
+      .filter(({ answers }) => dailyFilter === 'all' || (dailyFilter === 'starred' ? answers.some((e) => starredAnswers.has(e.id)) : dailyFilter === 'answered' ? answers.length > 0 : answers.length === 0))
       .filter(({ q: dq, answers }) => (!topic || dq.topicName === topic) && (!date || dq.date === date) && (!q || [dq.question, ...answers.map((e) => e.answer), ...(dq.suggestions || []).map((v) => v.answer)].some((t) => t.toLowerCase().includes(q))));
-  }, [state.questions, state.entries, query, topic, date, dailyFilter]);
+  }, [state.questions, state.entries, query, topic, date, dailyFilter, starredAnswers]);
 
   const unanswered = state.questions.filter((qq) => !state.entries.some((e) => e.questionId === qq.id)).length;
 
@@ -88,11 +90,12 @@ export default function History() {
       {tab === 'daily' ? (
         <div className="space-y-2">
           <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Daily filter">
-            {([['all', 'All'], ['answered', 'Answered'], ['suggested', 'Suggested only']] as const).map(([id, label]) => (
+            {([['all', 'All'], ['answered', 'Answered'], ['suggested', 'Suggested only'], ['starred', '⭐ Starred']] as const).map(([id, label]) => (
               <button key={id} role="tab" aria-selected={dailyFilter === id} onClick={() => { setDailyFilter(id); setDailyShown(10); }}
                 className={`rounded-full border px-3 py-1 text-xs ${dailyFilter === id ? 'border-blue-600 bg-blue-600 text-white dark:border-blue-400 dark:bg-blue-500 dark:text-slate-950' : 'border-slate-300 text-slate-600 dark:border-slate-700 dark:text-slate-300'}`}>{label}</button>
             ))}
           </div>
+          {dailyFilter === 'all' && <CompareRecordings recs={state.recordings} />}
           {daily.length ? (
             <>
               {daily.slice(0, dailyShown).map(({ q: dq, answers }) => <DailyRow key={dq.id} q={dq} answers={answers} open={open === dq.id} onToggle={() => setOpen(open === dq.id ? null : dq.id)} />)}
@@ -182,10 +185,11 @@ function EntryRow({ e, open, onToggle }: { e: Entry; open: boolean; onToggle: ()
 }
 
 /** One answer in full: fluency, pronunciation, upgrade / model answer, shadowing and the retry. */
-function EntryDetail({ e }: { e: Entry }) {
-  const { addPhrases } = useStore();
+function EntryDetail({ e, showRecordings = true }: { e: Entry; showRecordings?: boolean }) {
+  const { addPhrases, state } = useStore();
   return (
         <>
+          {showRecordings && <div className="mb-4"><RecordingList recs={state.recordings.filter((r) => r.answerId === e.id)} /></div>}
           {e.fluency && <div className="mb-4"><FluencyCard stats={e.fluency} title="📈 Fluency (your answer)" /></div>}
           {e.pronunciation && <div className="mb-4"><PronunciationCard clips={[]} transcript={e.answer} result={e.pronunciation} /></div>}
           {e.builder && e.upgrade ? <BuilderResult entry={e} onSave={(items) => addPhrases(items, e.question)} /> : e.upgrade ? <UpgradeResult entry={e} /> : <p className="muted">No upgrade for this answer.</p>}
@@ -206,6 +210,9 @@ const fluencyLine = (e: Entry) => [e.fluency ? `${e.fluency.wpm} wpm` : '', e.fl
 
 /** A daily question with his answer(s) and the suggested answer versions. */
 function DailyRow({ q, answers, open, onToggle }: { q: DailyQuestion; answers: Entry[]; open: boolean; onToggle: () => void }) {
+  const { state } = useStore();
+  const ids = new Set(answers.map((e) => e.id));
+  const recordings = state.recordings.filter((r) => r.answerId && ids.has(r.answerId));
   const versions = q.suggestions || [];
   const last = answers[answers.length - 1];
   const reused = last ? reusedPhrases(versions, last.answer) : [];
@@ -217,6 +224,7 @@ function DailyRow({ q, answers, open, onToggle }: { q: DailyQuestion; answers: E
           <span className="flex flex-wrap items-center gap-1.5">
             {answers.length > 0 && <span className="chip bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200">🎙️ {answers.length > 1 ? `${answers.length} answers` : 'Answered'}</span>}
             {versions.length > 0 && <span className="chip bg-amber-100 text-amber-800 dark:bg-amber-400/15 dark:text-amber-200">💡 {versions.length} suggested</span>}
+            {recordings.length > 0 && <span className="chip bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-200">🎧 {recordings.length}{recordings.some((r) => r.starred) ? ' ⭐' : ''}</span>}
             <span>{q.topicName}</span>
           </span>
         </div>
@@ -234,11 +242,11 @@ function DailyRow({ q, answers, open, onToggle }: { q: DailyQuestion; answers: E
                   {answers.length > 1 && <p className="mb-1 text-xs font-semibold text-slate-500">Answer {i + 1}</p>}
                   <p className="text-slate-700 dark:text-slate-200">“{e.answer}”</p>
                   {fluencyLine(e) && <p className="mt-1 text-xs text-slate-500">{fluencyLine(e)}</p>}
-                  <p className="mt-1 text-[11px] text-slate-400">Audio of daily answers isn't stored; the transcript, fluency and pronunciation results are.</p>
                 </div>
+                <RecordingList recs={recordings.filter((r) => r.answerId === e.id)} />
                 <details className="text-sm">
                   <summary className="cursor-pointer text-xs font-medium text-slate-500">Feedback, upgrade and retry</summary>
-                  <div className="mt-3"><EntryDetail e={e} /></div>
+                  <div className="mt-3"><EntryDetail e={e} showRecordings={false} /></div>
                 </details>
               </div>
             )) : <p className="muted text-sm">Not answered yet. Try it on Today.</p>}
