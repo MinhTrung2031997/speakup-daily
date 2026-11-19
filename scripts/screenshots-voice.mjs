@@ -187,6 +187,19 @@ try {
   await sleep(3000);
   await shotEl(`${PREFIX}-3-versions`, '#suggested-answer');
 
+  // 3b) Suggested answer "Listen" uses the same AI voice (sentence by sentence, cached), browser voice only as fallback
+  {
+    const t0 = tts.length, s0 = await page.evaluate(() => window.__spoken.length);
+    await page.evaluate(() => { const b = document.querySelector('#suggested-answer [data-open] [data-testid="listen-play"]'); b.scrollIntoView({ block: 'center' }); b.click(); });
+    if (REAL) await page.waitForFunction((k) => performance.getEntriesByType('resource').filter((e) => e.name.includes('/functions/v1/tts')).length >= k + 2, { timeout: 90000 }, t0).catch(() => {});
+    else await sleep(2500);
+    await sleep(REAL ? 4000 : 0);
+    const spoke = await page.evaluate(() => window.__spoken.length);
+    const okNat = REAL ? tts.slice(t0).filter((x) => x === 200).length >= 2 && spoke === s0 : spoke > s0;
+    ok('Suggested answer Listen plays with the AI voice', okNat, REAL ? `tts ${tts.slice(t0).join(',')}; browser voice used ${spoke - s0}x` : `demo: browser fallback ${spoke - s0} sentences`);
+    await page.evaluate(() => document.querySelector('[data-testid="listen-stop"]')?.click());
+  }
+
   // 4) Delete with the confirm popup: Cancel keeps it, Delete removes it for good
   const n1 = await nVersions();
   await page.evaluate(() => { const b = document.querySelectorAll('[data-testid="version-delete"]')[0]; b.scrollIntoView({ block: 'center' }); b.click(); });
@@ -227,6 +240,7 @@ try {
   await sleep(800);
   const hv = await page.evaluate(() => document.querySelectorAll('[data-daily] #suggested-answer [data-version]').length);
   ok('History > Daily shows all versions', hv === n1 - 1, `${hv}`);
+  ok('History question has the 🔊 AI voice button', !!(await page.$('[data-daily] [data-testid="ask-aloud"]')));
 
   // 8) Answer builder question: 🔊 + Listening mode
   await page.goto(BASE, { waitUntil: 'networkidle0' });

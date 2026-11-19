@@ -5,7 +5,7 @@ import TopicsEditor from '../components/TopicsEditor';
 import { speakNatural, spokenQuestion } from '../lib/tts';
 import { testKey } from '../lib/ai';
 import { errorText } from '../lib/gemini';
-import { useEnglishVoices, speak, ttsSupported, speechRecognitionSupported, preferredAccent } from '../lib/speech';
+import { useEnglishVoices, ttsSupported, speechRecognitionSupported, preferredAccent } from '../lib/speech';
 import { todayStr } from '../lib/date';
 import { PageTitle, Spinner } from '../components/ui';
 import Icon from '../components/Icon';
@@ -126,7 +126,7 @@ export default function Settings() {
               <label className="label">Speed: {s.rate.toFixed(2)}x</label>
               <input type="range" min={0.75} max={1.25} step={0.05} value={s.rate} onChange={(e) => set({ rate: Number(e.target.value) })} className="w-full accent-blue-600" />
             </div>
-            <button className="btn-soft w-fit" onClick={() => speak("Hi! The thing is, practice makes progress, not perfect.", { voiceURI: s.voiceURI, rate: s.rate })}><Icon name="play" className="h-4 w-4" /> Test voice</button>
+            <button className="btn-soft w-fit" onClick={() => speakNatural("Hi! The thing is, practice makes progress, not perfect.", { voiceURI: s.voiceURI, rate: s.rate })}><Icon name="play" className="h-4 w-4" /> Test voice</button>
           </div>
         ) : (
           <p className="muted">Read-aloud isn't supported in this browser.</p>

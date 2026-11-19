@@ -53,30 +53,83 @@ function wav(pcm16: Int16Array, rate: number): Uint8Array {
   return out;
 }
 
-/** Gemini returns raw 16-bit little-endian PCM (usually 24 kHz): resample to 16 kHz and wrap as WAV. */
-function toWav(b64: string, mime: string): Uint8Array {
+/**
+ * Clean the clip so it ends softly: Gemini TTS sometimes appends a short burst of loud noise after the
+ * speech has ended (heard as a click/hiss at the end). Cut anything after the last pause in the final
+ * ~0.8 s that is much louder than the speech or near full scale, trim the trailing silence (keep 150 ms),
+ * then fade in 5 ms and fade out 40 ms so there is no click.
+ */
+export function cleanClip(x: Int16Array, rate: number): Int16Array {
+  const blk = Math.max(1, Math.round(rate / 100)); // 10 ms blocks
+  const nb = Math.floor(x.length / blk);
+  if (nb < 10) return x;
+  const rms: number[] = [], peak: number[] = [];
+  for (let b = 0; b < nb; b++) {
+    let s = 0, p = 0;
+    for (let i = b * blk; i < (b + 1) * blk; i++) { const v = x[i]; s += v * v; const a = Math.abs(v); if (a > p) p = a; }
+    rms.push(Math.sqrt(s / blk)); peak.push(p);
+  }
+  const QUIET = 200;
+  const voiced = rms.filter((r) => r > QUIET).sort((a, b) => a - b);
+  const median = voiced.length ? voiced[Math.floor(voiced.length / 2)] : 0;
+  let end = nb; // exclusive, in blocks
+  // A tail burst: after a pause of >= 80 ms, within the last 800 ms, and loud (clipping or >2.5x the median speech level).
+  const tailFrom = Math.max(0, nb - 80);
+  for (let b = nb - 1, quiet = 0; b >= tailFrom; b--) {
+    quiet = rms[b] < QUIET ? quiet + 1 : 0;
+    if (quiet >= 8) {
+      const after = rms.slice(b + quiet, nb), pk = Math.max(0, ...peak.slice(b + quiet, nb));
+      const loud = after.length && (pk >= 29000 || Math.max(...after) > 2.5 * Math.max(median, 1500));
+      if (loud) end = b + quiet;
+      break;
+    }
+  }
+  // Trim trailing silence (keep 150 ms after the last voiced block).
+  let last = end - 1;
+  while (last > 0 && rms[last] < QUIET) last--;
+  end = Math.min(end, last + 1 + 15);
+  const out = x.slice(0, Math.min(x.length, end * blk));
+  const fin = Math.min(out.length, Math.round(rate * 0.005)), fout = Math.min(out.length, Math.round(rate * 0.04));
+  for (let i = 0; i < fin; i++) out[i] = Math.round(out[i] * (i / fin));
+  for (let i = 0; i < fout; i++) { const k = out.length - 1 - i; out[k] = Math.round(out[k] * (i / fout)); }
+  return out;
+}
+
+/** Gemini returns 16-bit little-endian PCM (raw L16 or a WAV): read only the real samples, resample to 16 kHz, clean, wrap as WAV. */
+export function toWav(b64: string, mime: string): Uint8Array {
   let raw = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
   let inRate = Number(mime.match(/rate=(\d+)/)?.[1] || 24000);
+  let channels = 1;
   if (raw.length > 44 && String.fromCharCode(...raw.subarray(0, 4)) === 'RIFF') {
-    // Already WAV: read the rate and the 'data' chunk (assumes 16-bit mono PCM).
-    const h = new DataView(raw.buffer);
-    inRate = h.getUint32(24, true);
-    let o = 12;
-    while (o + 8 <= raw.length && String.fromCharCode(...raw.subarray(o, o + 4)) !== 'data') o += 8 + h.getUint32(o + 4, true);
-    raw = raw.subarray(o + 8);
+    // WAV: walk the chunks; use the fmt values and ONLY the bytes the 'data' chunk declares
+    // (anything after it, e.g. a LIST chunk, is not audio and plays as loud noise).
+    const h = new DataView(raw.buffer, raw.byteOffset, raw.byteLength);
+    let o = 12, data: Uint8Array | null = null;
+    while (o + 8 <= raw.length) {
+      const id = String.fromCharCode(...raw.subarray(o, o + 4));
+      const size = h.getUint32(o + 4, true);
+      if (id === 'fmt ') { channels = h.getUint16(o + 10, true) || 1; inRate = h.getUint32(o + 12, true) || inRate; }
+      if (id === 'data') {
+        const avail = raw.length - (o + 8);
+        data = raw.subarray(o + 8, o + 8 + (size > 0 && size <= avail ? size : avail));
+        break;
+      }
+      o += 8 + size + (size % 2); // chunks are word-aligned
+    }
+    raw = data || raw.subarray(44);
   }
   const dv = new DataView(raw.buffer, raw.byteOffset, raw.byteLength);
-  const n = Math.floor(raw.byteLength / 2);
+  const n = Math.floor(raw.byteLength / (2 * channels)); // whole frames only (an odd trailing byte is dropped)
   const src = new Int16Array(n);
-  for (let i = 0; i < n; i++) src[i] = dv.getInt16(i * 2, true);
-  if (inRate <= OUT_RATE) return wav(src, inRate);
-  const m = Math.floor((n * OUT_RATE) / inRate);
+  for (let i = 0; i < n; i++) src[i] = dv.getInt16(i * 2 * channels, true);
+  if (inRate <= OUT_RATE) return wav(cleanClip(src, inRate), inRate);
+  const m = Math.floor(((n - 1) * OUT_RATE) / inRate);
   const dst = new Int16Array(m);
   for (let i = 0; i < m; i++) {
     const x = (i * inRate) / OUT_RATE, j = Math.floor(x), f = x - j;
-    dst[i] = Math.round(src[j] * (1 - f) + (src[Math.min(j + 1, n - 1)] || 0) * f);
+    dst[i] = Math.round(src[j] * (1 - f) + src[Math.min(j + 1, n - 1)] * f);
   }
-  return wav(dst, OUT_RATE);
+  return wav(cleanClip(dst, OUT_RATE), OUT_RATE);
 }
 
 async function sha(t: string) {
@@ -101,10 +154,10 @@ Deno.serve(async (req) => {
   let body: { text?: unknown; accent?: unknown };
   try { body = await req.json(); } catch { return fail(400, 'bad_request', 'Invalid JSON body.'); }
   const text = typeof body.text === 'string' ? body.text.replace(/\s+/g, ' ').trim() : '';
-  if (!text || text.length > 600) return fail(400, 'bad_request', 'Send 1 to 600 characters of text.');
+  if (!text || text.length > 800) return fail(400, 'bad_request', 'Send 1 to 800 characters of text.');
   const accent = body.accent === 'UK' ? 'UK' : 'US';
   const voice = VOICE[accent];
-  const path = `${u.user.id}/tts/${await sha(`v5|${accent}|${voice}|${text}`)}.wav`;
+  const path = `${u.user.id}/tts/${await sha(`v6|${accent}|${voice}|${text}`)}.wav`;
 
   const bucket = sb.storage.from('recordings');
   const hit = await bucket.createSignedUrl(path, 3600);

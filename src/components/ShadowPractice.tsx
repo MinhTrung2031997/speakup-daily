@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
 import { matchScore, markPhrases, splitSentences } from '../lib/diff';
 import { useRecorder, type Recording } from '../lib/recorder';
-import { speak, stopSpeaking, ttsSupported } from '../lib/speech';
+import { ttsSupported } from '../lib/speech';
+import { speakNatural, stopVoice } from '../lib/tts';
 import { useStore } from '../lib/store';
 import { uid } from '../lib/date';
 import { clipFromUrl, type AudioClip } from '../lib/audio';
@@ -15,11 +16,11 @@ interface Take extends Recording { score: number | null; id: string; clip: Audio
 
 const scoreColor = (n: number) => (n >= 80 ? 'text-emerald-600 dark:text-emerald-300' : n >= 50 ? 'text-blue-600 dark:text-blue-300' : 'text-amber-600 dark:text-amber-300');
 
-/** speechSynthesis sometimes never fires onend (e.g. no voices); don't let that freeze the flow. */
+/** The model sentence in the natural AI voice (browser voice as fallback). Never freezes the flow. */
 function speakSafe(text: string, opts: { voiceURI: string; rate: number }) {
   const words = text.split(/\s+/).length;
-  const limit = ((words * 0.45) / opts.rate + 3) * 1000;
-  return Promise.race([speak(text, opts), new Promise<void>((r) => setTimeout(r, limit))]);
+  const limit = ((words * 0.45) / opts.rate + 3) * 1000 + 45000; // + time to make the voice the first time
+  return Promise.race([speakNatural(text, opts).then(() => undefined), new Promise<void>((r) => setTimeout(r, limit))]);
 }
 
 function playUrl(url: string, audioRef: MutableRefObject<HTMLAudioElement | null>) {
@@ -60,7 +61,7 @@ export default function ShadowPractice({ text, phrases = [], onClose, onTake }: 
 
   const halt = () => {
     runId.current++;
-    stopSpeaking();
+    stopVoice();
     audioRef.current?.pause();
     clearTimeout(autoStop.current);
   };

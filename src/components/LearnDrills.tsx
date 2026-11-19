@@ -7,7 +7,8 @@ import { useAIConfig } from '../lib/hooks';
 import { checkWordUsage, fillInBlank, situationPrompt, speedRound, type WordCheck } from '../lib/ai';
 import { errorText } from '../lib/gemini';
 import { isDue, MASTERED_STAGE, stageLabel } from '../lib/srs';
-import { speak, ttsSupported } from '../lib/speech';
+import { ttsSupported } from '../lib/speech';
+import { speakNatural } from '../lib/tts';
 import { phraseInText, type FillBlank, type Situation, type SpeedResult } from '../lib/learnPrompts';
 import type { Phrase, ReviewDrill, UsageLevel } from '../lib/types';
 import MicInput from './MicInput';
@@ -34,7 +35,7 @@ export function practicePool(phrases: Phrase[]): Phrase[] {
 
 function useSay() {
   const { state } = useStore();
-  return (t: string) => speak(t, { voiceURI: state.settings.voiceURI, rate: state.settings.rate });
+  return (t: string) => speakNatural(t, { voiceURI: state.settings.voiceURI, rate: state.settings.rate });
 }
 
 /** Hear → Use → graded review for one phrase. */

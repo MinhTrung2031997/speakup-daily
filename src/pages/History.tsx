@@ -1,4 +1,5 @@
 import { groupTopics, topicIdOf } from '../lib/topics';
+import { AskAloudButton } from '../components/AskAloud';
 import { askConfirm } from '../components/ConfirmDialog';
 import { useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
@@ -172,6 +173,7 @@ export default function History() {
                 <p className="muted text-xs">{c.messages.filter((m) => m.role === 'user').length} messages from you{c.feedback ? ' · feedback ✓' : ''}</p>
               </summary>
               <div className="space-y-2 border-t border-slate-200 p-4 dark:border-slate-800">
+                <AskAloudButton id={`chat:${c.id}`} question={c.question} auto={false} />
                 {c.messages.map((m, i) => (
                   <p key={i} className="text-sm"><b className={m.role === 'user' ? 'text-blue-600 dark:text-blue-300' : 'text-slate-500'}>{m.role === 'user' ? 'You' : 'Partner'}:</b> {m.text}</p>
                 ))}
@@ -271,6 +273,7 @@ function DailyRow({ q, answers, open, onToggle }: { q: DailyQuestion; answers: E
       </button>
       {open && (
         <div className="space-y-4 border-t border-slate-200 p-3 dark:border-slate-800 sm:p-4">
+          <AskAloudButton id={`history:${q.id}`} question={q.question} auto={false} />
           <div>
             <h3 className="mb-2 text-sm font-semibold">🎙️ Your answer{answers.length > 1 ? 's' : ''}</h3>
             {answers.length ? answers.map((e, i) => (

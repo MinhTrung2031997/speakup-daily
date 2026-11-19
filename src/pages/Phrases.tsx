@@ -6,7 +6,7 @@ import { phraseMeanings } from '../lib/ai';
 import { FillBlankDrill, PhraseUseCard, SituationDrill, SpeedRound } from '../components/LearnDrills';
 import { isDue, schedule, stageLabel, MASTERED_STAGE, INTERVALS } from '../lib/srs';
 import { prettyDate, todayStr } from '../lib/date';
-import { speak, ttsSupported } from '../lib/speech';
+import { speakNatural } from '../lib/tts';
 import type { Phrase, SoundItem } from '../lib/types';
 import { issueLabel } from '../components/PronunciationCard';
 import { useSayWord, WordTryButton, type TryResult } from '../components/WordTry';
@@ -185,7 +185,7 @@ function AllPhrases() {
                 {Array.from({ length: MASTERED_STAGE }).map((_, i) => <span key={i} className={`h-1.5 flex-1 rounded-full ${i < p.stage ? 'bg-emerald-500' : 'bg-slate-200 dark:bg-slate-700'}`} />)}
               </div>
               <span className="ml-2 text-[11px] text-slate-400">{p.stage >= MASTERED_STAGE ? '' : `next ${prettyDate(p.due)}`}</span>
-              {ttsSupported() && <button className="btn-ghost !p-1.5" title="Listen" onClick={() => speak(p.phrase, { voiceURI: state.settings.voiceURI, rate: state.settings.rate })}><Icon name="play" className="h-3.5 w-3.5" /></button>}
+              {<button className="btn-ghost !p-1.5" title="Listen" onClick={() => speakNatural(p.phrase, { voiceURI: state.settings.voiceURI, rate: state.settings.rate })}><Icon name="play" className="h-3.5 w-3.5" /></button>}
               <button className="btn-ghost !p-1.5" title="Delete" onClick={() => remove(p.id)}><Icon name="trash" className="h-3.5 w-3.5" /></button>
             </div>
           </div>

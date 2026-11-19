@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { accentVoice, createRecognition, preferredAccent, speakWith, speechRecognitionSupported, type SpeechRecognitionLike } from '../lib/speech';
+import { createRecognition, preferredAccent, speechRecognitionSupported, type SpeechRecognitionLike } from '../lib/speech';
+import { speakNatural } from '../lib/tts';
 import { useStore } from '../lib/store';
 import Icon from './Icon';
 
@@ -32,7 +33,7 @@ export function useSayWord(accent?: 'US' | 'UK') {
   const { state } = useStore();
   return (word: string) => {
     const a = accent || preferredAccent();
-    return speakWith(word, { voice: accentVoice(a, state.settings.voiceURI), rate: Math.min(0.85, state.settings.rate), lang: a === 'UK' ? 'en-GB' : 'en-US' });
+    return speakNatural(word, { accent: a, voiceURI: state.settings.voiceURI, rate: Math.min(0.85, state.settings.rate) });
   };
 }
 

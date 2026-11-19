@@ -4,7 +4,8 @@ import { todaysPhrases, todaysQuestion, useAIConfig } from '../lib/hooks';
 import { chatFeedback, chatReply } from '../lib/ai';
 import { errorText } from '../lib/gemini';
 import { todayStr, uid } from '../lib/date';
-import { speak, stopSpeaking, ttsSupported } from '../lib/speech';
+import { stopSpeaking, ttsSupported } from '../lib/speech';
+import { speakNatural, stopVoice } from '../lib/tts';
 import { markPhrases } from '../lib/diff';
 import type { ChatMessage, ChatSession } from '../lib/types';
 import MicInput from '../components/MicInput';
@@ -30,14 +31,11 @@ export default function Chat() {
   const [readAloud, setReadAloud] = useState(true);
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => () => stopSpeaking(), []);
+  useEffect(() => () => stopVoice(), []);
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }); }, [session?.messages.length, busy]);
 
   const say = (t: string) => {
-    if (readAloud && ttsSupported()) {
-      stopSpeaking();
-      speak(t, { voiceURI: state.settings.voiceURI, rate: state.settings.rate });
-    }
+    if (readAloud) speakNatural(t, { voiceURI: state.settings.voiceURI, rate: state.settings.rate });
   };
 
   const saveSession = (s: ChatSession) =>
@@ -139,8 +137,8 @@ export default function Chat() {
                     {m.role === 'user'
                       ? markPhrases(m.text, phrases).map((c, j) => (c.hit ? <b key={j} className="underline decoration-amber-300 decoration-2 underline-offset-2">{c.text}</b> : <span key={j}>{c.text}</span>))
                       : m.text}
-                    {m.role === 'model' && ttsSupported() && (
-                      <button onClick={() => { stopSpeaking(); speak(m.text, { voiceURI: state.settings.voiceURI, rate: state.settings.rate }); }} className="ml-2 inline-flex align-middle text-slate-400 hover:text-blue-600" title="Play">
+                    {m.role === 'model' && (
+                      <button onClick={() => speakNatural(m.text, { voiceURI: state.settings.voiceURI, rate: state.settings.rate })} className="ml-2 inline-flex align-middle text-slate-400 hover:text-blue-600" title="Play">
                         <Icon name="play" className="h-3.5 w-3.5" />
                       </button>
                     )}

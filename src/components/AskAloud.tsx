@@ -8,12 +8,12 @@ import { Spinner } from './ui';
 
 const played = new Set<string>(); // auto-play once per question per page load
 
-export function AskAloudButton({ id, question, auto = true }: { id: string; question: string; auto?: boolean }) {
+export function AskAloudButton({ id, question, auto = true, lead = true, label = 'Hear it' }: { id: string; question: string; auto?: boolean; lead?: boolean; label?: string }) {
   const { state } = useStore();
   const [st, setSt] = useState<'idle' | 'loading' | 'playing'>('idle');
   const [how, setHow] = useState('');
   const alive = useRef(true);
-  const text = spokenQuestion(question, state.profile.name);
+  const text = lead ? spokenQuestion(question, state.profile.name) : question;
   const play = async () => {
     if (st !== 'idle') { stopVoice(); setSt('idle'); return; }
     setSt('loading');
@@ -30,7 +30,7 @@ export function AskAloudButton({ id, question, auto = true }: { id: string; ques
     <button type="button" onClick={play} className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition ${st === 'playing' ? 'bg-blue-600 text-white dark:bg-blue-500 dark:text-slate-950' : 'bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-950 dark:text-blue-200'}`}
       aria-label={st === 'idle' ? 'Play the question' : 'Stop'} data-testid="ask-aloud" data-state={st} data-voice={how}>
       {st === 'loading' ? <Spinner className="h-3.5 w-3.5" /> : <span aria-hidden>{st === 'playing' ? '⏹' : '🔊'}</span>}
-      {st === 'playing' ? 'Stop' : st === 'loading' ? 'Loading voice…' : 'Hear it'}
+      {st === 'playing' ? 'Stop' : st === 'loading' ? 'Loading voice…' : label}
     </button>
   );
 }

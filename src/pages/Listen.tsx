@@ -13,6 +13,7 @@ import { dialogueVoices, speakWith, stopSpeaking, ttsSupported, useEnglishVoices
 import type { Accent, BuilderLevel, ListenSession, PronunciationResult } from '../lib/types';
 import FluencyCard from '../components/FluencyCard';
 import ListenPlayer from '../components/ListenPlayer';
+import { AskAloudButton } from '../components/AskAloud';
 import MicInput from '../components/MicInput';
 import PhraseCards from '../components/PhraseCards';
 import { ShadowCard } from '../components/ShadowPractice';
@@ -298,7 +299,10 @@ export default function Listen() {
             <div className="space-y-4">
               {d.questions.map((q, i) => (
                 <div key={i}>
-                  <p className="mb-2 text-sm font-semibold">{i + 1}. {q.q}</p>
+                  <div className="mb-2 flex items-start justify-between gap-2">
+                    <p className="text-sm font-semibold">{i + 1}. {q.q}</p>
+                    <AskAloudButton id={`listenq:${session.id}:${i}`} question={q.q} auto={false} lead={false} label="Hear" />
+                  </div>
                   <div className="grid gap-2">
                     {q.options.map((o, k) => {
                       const picked = choices[i] === k;
