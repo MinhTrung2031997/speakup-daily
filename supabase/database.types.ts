@@ -758,6 +758,12 @@ export type Database = {
         Update: { created_at?: string; data?: Json; id?: string; question_id?: string; updated_at?: string; user_id?: string }
         Relationships: []
       }
+      word_sessions: {
+        Row: { completed_at: string | null; created_at: string; id: string; progress: Json; session_date: string; topic: string; updated_at: string; user_id: string; words: Json }
+        Insert: { completed_at?: string | null; created_at?: string; id?: string; progress?: Json; session_date: string; topic?: string; updated_at?: string; user_id?: string; words?: Json }
+        Update: { completed_at?: string | null; created_at?: string; id?: string; progress?: Json; session_date?: string; topic?: string; updated_at?: string; user_id?: string; words?: Json }
+        Relationships: []
+      }
       user_settings: {
         Row: {
           created_at: string

@@ -27,6 +27,7 @@ const PATHS: Record<string, string> = {
   download: 'M12 3v12M7 10l5 5 5-5M4 21h16',
   upload: 'M12 21V9M7 14l5-5 5 5M4 3h16',
   headphones: 'M4 15v-3a8 8 0 0 1 16 0v3M4 15a2 2 0 0 1 2-2h1v7H6a2 2 0 0 1-2-2zM20 15a2 2 0 0 0-2-2h-1v7h1a2 2 0 0 0 2-2z',
+  book: 'M4 5a2 2 0 0 1 2-2h14v15H6a2 2 0 0 0-2 2V5zM4 20a2 2 0 0 0 2 1h14v-3M9 8h7M9 12h5',
   ear: 'M6 9a6 6 0 1 1 12 0c0 3-2 4-3 5s-1 3-3 4a3 3 0 0 1-4-1M9.5 9a2.5 2.5 0 1 1 5 0',
 };
 

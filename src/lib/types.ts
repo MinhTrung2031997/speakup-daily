@@ -174,7 +174,7 @@ export interface SuggestedAnswer {
 
 export type UsageLevel = 'natural' | 'understandable' | 'off';
 export type ReviewDrill = 'use' | 'fill' | 'situation' | 'speed' | 'replay';
-export type PhraseOrigin = 'answer' | 'suggested' | 'builder' | 'listen' | 'manual';
+export type PhraseOrigin = 'answer' | 'suggested' | 'builder' | 'listen' | 'manual' | 'words';
 
 export interface ReviewLog {
   date: string;
@@ -233,6 +233,8 @@ export interface AppState {
   phrases: Phrase[];
   chats: ChatSession[];
   listens: ListenSession[];
+  /** Words session (Word of the day): one per day, newest last. */
+  wordSessions: WordSession[];
   sounds: SoundItem[];
   /** Saved mic recordings (recordings table + private bucket), oldest first. Kept permanently. */
   recordings: RecordingItem[];
@@ -375,5 +377,44 @@ export interface SoundItem {
   lastSeen: string;
   stage: number;
   due: string;
+  createdAt: number;
+}
+
+/** One word of a Words session (shape of WORD_BANK entries in words.ts). */
+export interface WordCard {
+  phrase: string;
+  meaning: string;
+  vi: string;
+  example: string;
+  example2: string;
+  topic: string;
+  level: string;
+  kind: string;
+  collocations: string[];
+  wrongPair?: string;
+  useItQuestion: string;
+}
+
+/** Progress on one word: 1 Hear it, 2 Notice it, 3 Say it, 4 Use it. */
+export interface WordProgress {
+  step: 1 | 2 | 3 | 4;
+  shadowed?: boolean;
+  cloze?: 'right' | 'wrong';
+  level?: UsageLevel;
+  sentence?: string;
+  feedback?: string;
+  better?: string;
+  voiced?: boolean;
+  done?: boolean;
+}
+
+export interface WordSession {
+  id: string;
+  date: string;
+  topic: string;
+  words: WordCard[];
+  current: number;
+  items: WordProgress[];
+  completedAt?: number;
   createdAt: number;
 }

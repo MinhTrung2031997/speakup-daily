@@ -5,7 +5,7 @@ import { useAIConfig } from '../lib/hooks';
 import { phraseMeanings } from '../lib/ai';
 import { FillBlankDrill, PhraseUseCard, SituationDrill, SpeedRound } from '../components/LearnDrills';
 import { isDue, schedule, stageLabel, MASTERED_STAGE, INTERVALS } from '../lib/srs';
-import { prettyDate } from '../lib/date';
+import { prettyDate, todayStr } from '../lib/date';
 import { speak, ttsSupported } from '../lib/speech';
 import type { Phrase, SoundItem } from '../lib/types';
 import { issueLabel } from '../components/PronunciationCard';
@@ -27,6 +27,7 @@ export default function Phrases() {
   return (
     <div className="space-y-4">
       <PageTitle title="Phrase Bank" subtitle={`${state.phrases.length} phrases · ${state.phrases.filter((p) => p.learnedByVoice).length} learned by voice · ${state.phrases.filter((p) => p.stage >= MASTERED_STAGE).length} mastered · reviews on days ${INTERVALS.join(', ')}`} />
+      <WordOfTheDay />
       <div className="inline-flex rounded-xl bg-slate-100 p-1 dark:bg-slate-800">
         <button onClick={() => setTab('review')} className={`rounded-lg px-4 py-1.5 text-sm font-medium ${tab === 'review' ? 'bg-white shadow-sm dark:bg-slate-950' : 'text-slate-500'}`}>Review {badge > 0 && <span className="ml-1 rounded-full bg-amber-400 px-1.5 text-[10px] font-bold text-amber-950">{badge}</span>}</button>
         <button onClick={() => setTab('drills')} className={`rounded-lg px-4 py-1.5 text-sm font-medium ${tab === 'drills' ? 'bg-white shadow-sm dark:bg-slate-950' : 'text-slate-500'}`}>Drills</button>
@@ -34,6 +35,24 @@ export default function Phrases() {
       </div>
       {tab === 'review' ? <><Review due={due} /><SoundsReview /></> : tab === 'drills' ? <Drills /> : <AllPhrases />}
     </div>
+  );
+}
+
+/** Entry point to today's Words session (new words), above the reviews of saved phrases. */
+function WordOfTheDay() {
+  const { state } = useStore();
+  const today = state.wordSessions.find((w) => w.date === todayStr());
+  const done = today ? today.items.filter((i) => i?.done).length : 0;
+  const total = today?.words.length || 5;
+  return (
+    <Link to="/words" className="card flex items-center gap-3 !py-3 hover:ring-2 hover:ring-blue-200 dark:hover:ring-blue-900" data-testid="word-of-the-day">
+      <span className="text-2xl" aria-hidden>📚</span>
+      <span className="min-w-0 flex-1">
+        <span className="block font-semibold text-slate-900 dark:text-white">Word of the day</span>
+        <span className="block text-sm text-slate-500">{done >= total ? `Done for today: ${total}/${total} ✓` : `${total} new phrases · hear, notice, say, use · ~10 min${done ? ` · ${done}/${total} done` : ''}`}</span>
+      </span>
+      <span className="btn-soft shrink-0">{done >= total ? 'Review' : done ? 'Continue' : 'Start'} →</span>
+    </Link>
   );
 }
 
@@ -89,7 +108,7 @@ function useLazyMeanings() {
   }, [state.phrases, ai, update]);
 }
 
-const ORIGIN: Record<NonNullable<Phrase['origin']>, string> = { answer: '✨ Upgrade', suggested: '💡 Suggested', builder: '🧱 Builder', listen: '🎧 Listen', manual: '✍️ Added by you' };
+const ORIGIN: Record<NonNullable<Phrase['origin']>, string> = { answer: '✨ Upgrade', suggested: '💡 Suggested', builder: '🧱 Builder', listen: '🎧 Listen', manual: '✍️ Added by you', words: '📚 Words' };
 
 function AddPhrase() {
   const { addPhrases } = useStore();

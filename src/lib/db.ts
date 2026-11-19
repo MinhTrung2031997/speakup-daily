@@ -19,7 +19,7 @@ import { getDemoMode } from './gemini';
 import type {
   ReplayInfo,
   AppState, BuilderInfo, ListenSession, ChatFeedback, ChatMessage, ChatSession, DailyQuestion, Entry, FluencyStats, Phrase, Profile,
-  PronunciationResult, RecordingItem, RecordingKind, RetryResult, ReviewLog, Settings, ShadowAttemptInput, SoundItem, SuggestedAnswer, Topic, Upgrade,
+  PronunciationResult, RecordingItem, RecordingKind, RetryResult, ReviewLog, Settings, ShadowAttemptInput, SoundItem, SuggestedAnswer, Topic, Upgrade, WordSession,
 } from './types';
 
 export const PRESET_TOPICS: Topic[] = TOPIC_CATALOGUE.map((t) => ({ id: t.id, name: t.name, emoji: t.emoji, active: true }));
@@ -170,6 +170,33 @@ function answerRow(userId: string, e: Entry, questionId: string | null, clientId
     input_mode: e.fluency ? 'voice' : 'text',
     answer_date: date(e.date),
     created_at: ts(e.createdAt),
+  };
+}
+
+function wordSessionRow(userId: string, w: WordSession) {
+  return {
+    id: w.id,
+    user_id: userId,
+    session_date: date(w.date),
+    topic: (w.topic || '').slice(0, 80),
+    words: j(w.words || []),
+    progress: j({ current: w.current || 0, items: w.items || [] }),
+    completed_at: w.completedAt ? ts(w.completedAt) : null,
+    created_at: ts(w.createdAt),
+    updated_at: new Date().toISOString(),
+  };
+}
+
+type WordSessionRowIn = { id: string; session_date: string; topic: string; words: Json; progress: Json; completed_at: string | null; created_at: string };
+function wordSessionFromRow(r: WordSessionRowIn): WordSession {
+  const p = (r.progress && typeof r.progress === 'object' && !Array.isArray(r.progress) ? r.progress : {}) as { current?: number; items?: unknown };
+  return {
+    id: r.id, date: r.session_date, topic: r.topic || '',
+    words: (Array.isArray(r.words) ? r.words : []) as unknown as WordSession['words'],
+    current: Number(p.current) || 0,
+    items: (Array.isArray(p.items) ? p.items : []) as WordSession['items'],
+    ...(r.completed_at ? { completedAt: ms(r.completed_at) } : {}),
+    createdAt: ms(r.created_at),
   };
 }
 
@@ -330,6 +357,7 @@ export async function loadState(userId: string): Promise<AppState> {
     fetchAll<{ id: string; created_at: string; pron_score: unknown }>('shadowing_attempts', 'id,created_at,pron_score:pronunciation->score', 'created_at').catch(() => []),
     fetchAll<RecordingRow>('recordings', RECORDING_COLS, 'created_at').catch(() => []),
   ]);
+  const wordRows = await fetchAll<WordSessionRowIn>('word_sessions', 'id,session_date,topic,words,progress,completed_at,created_at', 'created_at').catch(() => []);
   const versionRows = await fetchAll<SuggestedRow>('suggested_answers', 'id,question_id,data,created_at', 'created_at').catch(() => null);
   const versionsByQ = new Map<string, SuggestedAnswer[]>();
   for (const r of versionRows || []) {
@@ -429,6 +457,7 @@ export async function loadState(userId: string): Promise<AppState> {
       ...(l.pronunciation ? { pronunciation: l.pronunciation as unknown as PronunciationResult } : {}),
       createdAt: ms(l.created_at),
     })),
+    wordSessions: wordRows.map(wordSessionFromRow),
     // "Sounds to fix", newest first like phrases.
     sounds: sounds.reverse().map((x) => ({
       id: x.id, word: x.word, note: x.note, ipa: x.ipa, issue: x.issue, heard: x.heard, timesSeen: x.times_seen,
@@ -541,6 +570,13 @@ export async function syncChanges(userId: string, prev: AppState, next: AppState
     const ids = new Set(next.chats.map((c) => c.id));
     const gone = prev.chats.filter((c) => !ids.has(c.id)).map((c) => c.id);
     for (const c of chunks(gone)) check(await supabase.from('chat_sessions').delete().in('id', c), 'Delete chats');
+  }
+
+  // Words sessions (one per day)
+  if ((prev.wordSessions || []) !== (next.wordSessions || [])) {
+    const old = byId(prev.wordSessions || []);
+    const changed = (next.wordSessions || []).filter((w) => old.get(w.id) !== w && isUuid(w.id));
+    for (const c of chunks(changed)) check(await supabase.from('word_sessions').upsert(c.map((w) => wordSessionRow(userId, w)), { onConflict: 'user_id,session_date' }), 'Save words session');
   }
 
   // Listening sessions
@@ -832,7 +868,7 @@ export async function importLegacy(userId: string, legacy: AppState, current: Ap
 // ---------------------------------------------------------------------------
 export async function resetAll(userId: string): Promise<void> {
   // Children cascade: answers -> fluency_stats, phrases -> phrase_reviews, chat_sessions -> chat_messages.
-  for (const t of ['recordings', 'shadowing_attempts', 'fluency_stats', 'answers', 'phrases', 'chat_sessions', 'daily_questions', 'daily_activity', 'listening_sessions', 'pronunciation_items'] as const) {
+  for (const t of ['recordings', 'shadowing_attempts', 'fluency_stats', 'answers', 'phrases', 'chat_sessions', 'daily_questions', 'daily_activity', 'listening_sessions', 'pronunciation_items', 'word_sessions'] as const) {
     check(await supabase.from(t).delete().eq('user_id', userId), `Delete ${t}`);
   }
   check(await supabase.from('topics').delete().eq('user_id', userId).eq('is_custom', true), 'Delete custom topics');

@@ -39,7 +39,7 @@ function playUrl(url: string, audioRef: MutableRefObject<HTMLAudioElement | null
  * Playback uses in-memory object URLs (revoked on re-record and on close); each take is also saved
  * to shadowing_attempts, with the audio uploaded to the private `recordings` bucket.
  */
-export default function ShadowPractice({ text, phrases = [], onClose }: { text: string; phrases?: string[]; onClose?: () => void }) {
+export default function ShadowPractice({ text, phrases = [], onClose, onTake }: { text: string; phrases?: string[]; onClose?: () => void; onTake?: (sentenceIndex: number, score: number | null) => void }) {
   const { state, addSpeaking, logActivity, saveShadow, saveShadowPron } = useStore();
   const { rate, voiceURI } = state.settings;
   const sentences = useMemo(() => splitSentences(text), [text]);
@@ -87,6 +87,7 @@ export default function ShadowPractice({ text, phrases = [], onClose }: { text: 
     // Save the attempt (and upload the recording to the private bucket) in the background.
     const id = uid();
     saveShadow({ id, sourceText: text, sentenceIndex: idx, sentence, transcript: r.transcript, score, seconds: r.seconds, audioUrl: r.url || undefined });
+    onTake?.(idx, score);
     const clip = r.url ? await clipFromUrl(r.url, r.seconds) : null;
     setTakes((all) => {
       const old = all[idx];

@@ -191,7 +191,7 @@ try {
   const n1 = await nVersions();
   await page.evaluate(() => { const b = document.querySelectorAll('[data-testid="version-delete"]')[0]; b.scrollIntoView({ block: 'center' }); b.click(); });
   await sleep(300);
-  await shotEl(`${PREFIX}-4-confirm`, '[data-testid="confirm-dialog"]');
+  await sleep(400); await page.screenshot({ path: `screenshots/${PREFIX}-4-confirm.png` });
   const c1 = await confirmDialog(false);
   ok('confirm popup text + Cancel focused', /Delete this version permanently\?/.test(c1.txt) && /can't be undone/.test(c1.txt) && c1.focused === 'confirm-cancel', c1.txt.replace(/\s+/g, ' '));
   ok('Cancel keeps the version', (await nVersions()) === n1);
