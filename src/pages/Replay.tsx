@@ -3,6 +3,7 @@
 // as targets. Afterwards: "Then vs now" (first vs latest attempt) + EL's compareAnswers, and the targets are graded
 // on 3 levels and scheduled in code (srs.scheduleLevel).
 import { useEffect, useMemo, useState } from 'react';
+import { SpokenQuestion } from '../components/AskAloud';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useStore } from '../lib/store';
 import { useAIConfig } from '../lib/hooks';
@@ -165,7 +166,7 @@ function ReplayRound({ q }: { q: DailyQuestion }) {
           <span>First asked {prettyDate(q.date)}</span>
           <span>· {prev.filter((e) => e.id !== newId).length ? `${prev.filter((e) => e.id !== newId).length} earlier attempt${prev.filter((e) => e.id !== newId).length > 1 ? 's' : ''} (hidden)` : 'never answered'}</span>
         </div>
-        <p className="text-xl font-semibold text-slate-900 dark:text-white">{q.question}</p>
+        <SpokenQuestion id={`replay:${q.id}`} question={q.question} answered={!!latest} className="text-xl font-semibold text-slate-900 dark:text-white" />
         {targets.length > 0 && (
           <div className="flex flex-wrap items-center gap-1.5" data-testid="replay-targets">
             <span className="text-xs text-slate-500">Try to use (due for review):</span>

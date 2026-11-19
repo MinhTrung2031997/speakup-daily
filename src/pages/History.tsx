@@ -1,4 +1,5 @@
 import { groupTopics, topicIdOf } from '../lib/topics';
+import { askConfirm } from '../components/ConfirmDialog';
 import { useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import SuggestedAnswer, { reusedPhrases } from '../components/SuggestedAnswer';
@@ -213,9 +214,18 @@ function EntryRow({ e, open, onToggle }: { e: Entry; open: boolean; onToggle: ()
 
 /** One answer in full: fluency, pronunciation, upgrade / model answer, shadowing and the retry. */
 function EntryDetail({ e, showRecordings = true }: { e: Entry; showRecordings?: boolean }) {
-  const { addPhrases, state } = useStore();
+  const { addPhrases, state, update } = useStore();
+  const removeBuilt = async () => {
+    if (!(await askConfirm({ title: 'Delete this version permanently?', body: "This can't be undone.", confirmLabel: 'Delete', danger: true }))) return;
+    update((s) => ({ ...s, entries: s.entries.filter((x) => x.id !== e.id) }));
+  };
   return (
         <>
+          {e.builder && (
+            <div className="mb-2 flex justify-end">
+              <button className="rounded-lg p-2 text-rose-600 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-950/40" onClick={removeBuilt} aria-label="Delete this model answer" title="Delete this version" data-testid="builder-delete"><Icon name="trash" className="h-4 w-4" /></button>
+            </div>
+          )}
           {showRecordings && <div className="mb-4"><RecordingList recs={state.recordings.filter((r) => r.answerId === e.id)} /></div>}
           {e.fluency && <div className="mb-4"><FluencyCard stats={e.fluency} title="📈 Fluency (your answer)" /></div>}
           {e.pronunciation && <div className="mb-4"><PronunciationCard clips={[]} transcript={e.answer} result={e.pronunciation} /></div>}

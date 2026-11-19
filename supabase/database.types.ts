@@ -752,11 +752,19 @@ export type Database = {
         }
         Relationships: []
       }
+      suggested_answers: {
+        Row: { created_at: string; data: Json; id: string; question_id: string; updated_at: string; user_id: string }
+        Insert: { created_at?: string; data: Json; id?: string; question_id: string; updated_at?: string; user_id?: string }
+        Update: { created_at?: string; data?: Json; id?: string; question_id?: string; updated_at?: string; user_id?: string }
+        Relationships: []
+      }
       user_settings: {
         Row: {
           created_at: string
           dark: boolean
           fast_mode: boolean
+          ask_aloud: boolean
+          listening_mode: boolean
           model: string
           onboarded: boolean
           rate: number
@@ -768,6 +776,8 @@ export type Database = {
           created_at?: string
           dark?: boolean
           fast_mode?: boolean
+          ask_aloud?: boolean
+          listening_mode?: boolean
           model?: string
           onboarded?: boolean
           rate?: number
@@ -779,6 +789,8 @@ export type Database = {
           created_at?: string
           dark?: boolean
           fast_mode?: boolean
+          ask_aloud?: boolean
+          listening_mode?: boolean
           model?: string
           onboarded?: boolean
           rate?: number

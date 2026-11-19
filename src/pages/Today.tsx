@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { SpokenQuestion } from '../components/AskAloud';
 import { Link } from 'react-router-dom';
 import { useStore } from '../lib/store';
 import { todaysQuestion, useAIConfig } from '../lib/hooks';
@@ -238,7 +239,7 @@ export default function Today() {
           </div>
           {q ? (
             <>
-              <p className="text-xl font-semibold leading-snug text-slate-900 dark:text-white">{q.question}</p>
+              <SpokenQuestion id={q.id} question={q.question} answered={!!entry?.upgrade} />
               {q.starters.length > 0 && (
                 <div className="mt-4">
                   <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">💡 Idea starters</p>

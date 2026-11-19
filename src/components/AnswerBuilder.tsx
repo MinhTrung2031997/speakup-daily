@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { SpokenQuestion } from './AskAloud';
 import { groupTopics, nextBankQuestion, topicIdOf } from '../lib/topics';
 import { useStore } from '../lib/store';
 import { useAIConfig } from '../lib/hooks';
@@ -209,8 +210,8 @@ export default function AnswerBuilder() {
       const builder: BuilderInfo = { qtype: c.qtype, slots, picks: source === 'picked' ? { ...r.ideas, ...chosen } : r.ideas, level, seconds, parts, source };
       const txt = (i: number) => parts[i]?.text || '';
       const e: Entry = {
-        // Re-building before trying reuses the same History entry (same question only).
-        id: entry && !entry.answer && entry.question === question ? entry.id : uid(),
+        // Every build is kept as its own History entry (delete one there with the 🗑️ button).
+        id: uid(),
         date: todayStr(),
         questionId: '',
         question,
@@ -334,7 +335,7 @@ export default function AnswerBuilder() {
                 {loadingQ ? <Spinner className="h-3.5 w-3.5" /> : <Icon name="refresh" className="h-4 w-4" />} New question
               </button>
             </div>
-            <p className="text-xl font-semibold leading-snug text-slate-900 dark:text-white">{question}</p>
+            <SpokenQuestion id={`builder:${question}`} question={question} answered={!!entry} />
             <p className="muted mt-2 text-xs">Answer structure: {slots.join(' → ')}</p>
           </div>
         </section>

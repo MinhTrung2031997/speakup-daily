@@ -2,9 +2,10 @@ import { useRef, useState } from 'react';
 import { useStore, normalizeState } from '../lib/store';
 import RecordingPlayer from '../components/RecordingPlayer';
 import TopicsEditor from '../components/TopicsEditor';
+import { speakNatural, spokenQuestion } from '../lib/tts';
 import { testKey } from '../lib/ai';
 import { errorText } from '../lib/gemini';
-import { useEnglishVoices, speak, ttsSupported, speechRecognitionSupported } from '../lib/speech';
+import { useEnglishVoices, speak, ttsSupported, speechRecognitionSupported, preferredAccent } from '../lib/speech';
 import { todayStr } from '../lib/date';
 import { PageTitle, Spinner } from '../components/ui';
 import Icon from '../components/Icon';
@@ -105,6 +106,8 @@ export default function Settings() {
         </div>
       </section>
 
+      <QuestionVoiceCard />
+
       <section className="card space-y-3">
         <h2 className="h-section">🎨 Look &amp; sound</h2>
         <label className="flex items-center gap-2 text-sm">
@@ -166,6 +169,45 @@ export default function Settings() {
       </section>
       <p className="pb-4 text-center text-xs text-slate-400">SpeakUp Daily · your practice is saved to your account</p>
     </div>
+  );
+}
+
+/** Hear the question asked aloud (natural AI voice, US / UK) + Listening mode. */
+function QuestionVoiceCard() {
+  const { state, update } = useStore();
+  const s = state.settings;
+  const set = (patch: Partial<typeof s>) => update((st) => ({ ...st, settings: { ...st.settings, ...patch } }));
+  const [accent, setAccentState] = useState<'US' | 'UK'>(preferredAccent());
+  const [testing, setTesting] = useState(false);
+  const setAccent = (a: 'US' | 'UK') => {
+    setAccentState(a);
+    try { const p = JSON.parse(localStorage.getItem('speakup.listen') || '{}'); localStorage.setItem('speakup.listen', JSON.stringify({ ...p, accent: a })); } catch { /* ignore */ }
+  };
+  const test = async () => {
+    setTesting(true);
+    await speakNatural(spokenQuestion('What does a productive day look like for you?', state.profile.name), { accent, voiceURI: s.voiceURI });
+    setTesting(false);
+  };
+  return (
+    <section className="card space-y-3" data-testid="voice-card">
+      <h2 className="h-section">🔊 Hear the question</h2>
+      <p className="muted">A natural voice asks you the question, like a friend on a voice chat. If it can't load, your browser's voice reads it.</p>
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" className="accent-blue-600" checked={s.askAloud !== false} onChange={(e) => set({ askAloud: e.target.checked })} data-testid="ask-aloud-setting" /> Play the question when it opens
+      </label>
+      <label className="flex items-start gap-2 text-sm">
+        <input type="checkbox" className="mt-0.5 accent-blue-600" checked={!!s.listeningMode} onChange={(e) => set({ listeningMode: e.target.checked })} data-testid="listening-setting" />
+        <span>Listening mode <span className="block text-xs text-slate-500">Hide the question text until you've answered, so you understand it by ear (you can still tap Show text).</span></span>
+      </label>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-sm">Accent:</span>
+        {(['US', 'UK'] as const).map((a) => (
+          <button key={a} onClick={() => setAccent(a)} aria-pressed={accent === a} className={`rounded-full border px-3 py-1 text-sm ${accent === a ? 'border-blue-600 bg-blue-600 text-white dark:border-blue-400 dark:bg-blue-500 dark:text-slate-950' : 'border-slate-300 dark:border-slate-700'}`}>{a === 'US' ? '🇺🇸 US' : '🇬🇧 UK'}</button>
+        ))}
+        <button className="btn-soft !py-1.5 text-sm" onClick={test} disabled={testing}>{testing ? <Spinner /> : <Icon name="play" className="h-4 w-4" />} Test</button>
+      </div>
+      <p className="text-xs text-slate-500">The accent is shared with the Listen tab.</p>
+    </section>
   );
 }
 

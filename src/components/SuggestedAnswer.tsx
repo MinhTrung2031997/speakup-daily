@@ -11,8 +11,8 @@ import BuilderResult from './BuilderResult';
 import { ShadowCard } from './ShadowPractice';
 import { ErrorBox, Spinner } from './ui';
 import Icon from './Icon';
+import { askConfirm } from './ConfirmDialog';
 
-export const MAX_VERSIONS = 5;
 const LEVELS: BuilderLevel[] = ['Simple', 'Natural', 'Fluent'];
 const LENGTHS: BuilderLength[] = [20, 45, 90, 120];
 const pill = (on: boolean) =>
@@ -64,9 +64,10 @@ export function reusedPhrases(list: Suggested[] | undefined, answer: string) {
 const versionLabel = (v: Suggested, i: number) => `V${i + 1} · ${v.level} · ${LENGTH_LABEL[v.seconds] || `${v.seconds}s`}${v.stance ? ` · ${v.stance}` : ''}`;
 
 /**
- * Suggested answers for a daily question: a list of versions (V1…V5) kept on the question.
- * The open version has a level / length switcher (rewrites that version); "➕ Another angle" adds a new
- * version below with a rotated stance and new phrases; each version can be deleted.
+ * Suggested answers for a daily question: every version is kept (no cap; one row each in suggested_answers).
+ * The open version has a level / length switcher (writes a NEW version at that level / length, the old one
+ * stays); "➕ Another angle" adds a version with a rotated stance and new phrases; 🗑️ deletes one version
+ * permanently after a confirm popup.
  */
 export default function SuggestedAnswer({ q, onClose, autoStart = true }: { q: DailyQuestion; onClose?: () => void; autoStart?: boolean }) {
   const { state, update, addPhrases } = useStore();
@@ -87,18 +88,19 @@ export default function SuggestedAnswer({ q, onClose, autoStart = true }: { q: D
     try { await fn(); } catch (e) { setError(errorText(e)); } finally { setBusy(''); }
   };
 
-  /** Rewrite one version at a new level / length (keeps its place and stance). */
+  /** Another level / length of one version: saved as a NEW version (same stance); the old one is kept. */
   const rewrite = (v: Suggested, level: BuilderLevel, seconds: BuilderLength) => run('rewrite', async () => {
     const others = current().filter((x) => x.id !== v.id);
     const nv = await suggest(ai, state.profile, q, level, seconds, others, v.stance);
-    save(current().map((x) => (x.id === v.id ? { ...nv, id: v.id } : x)));
+    save([...current(), nv]);
     addPhrases(nv.phrases, q.question, 'suggested'); // auto-collect highlighted phrases into the word bank
+    setOpenId(nv.id);
+    setTimeout(() => document.getElementById(`sv-${nv.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
   });
 
   /** First version, or "➕ Another angle": a new version added below the others. */
   const add = (level: BuilderLevel, seconds: BuilderLength) => run('add', async () => {
     const prev = current();
-    if (prev.length >= MAX_VERSIONS) return;
     const nv = await suggest(ai, state.profile, q, level, seconds, prev, prev.length ? nextStance(prev.map((x) => x.stance)) : undefined);
     save([...prev, nv]);
     addPhrases(nv.phrases, q.question, 'suggested'); // auto-collect highlighted phrases into the word bank
@@ -106,8 +108,8 @@ export default function SuggestedAnswer({ q, onClose, autoStart = true }: { q: D
     setTimeout(() => document.getElementById(`sv-${nv.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
   });
 
-  const remove = (v: Suggested, i: number) => {
-    if (!confirm(`Delete suggested answer V${i + 1}?`)) return;
+  const remove = async (v: Suggested) => {
+    if (!(await askConfirm({ title: 'Delete this version permanently?', body: "This can't be undone.", confirmLabel: 'Delete', danger: true }))) return;
     const next = current().filter((x) => x.id !== v.id);
     save(next);
     if (openId === v.id) setOpenId(next[next.length - 1]?.id || '');
@@ -134,13 +136,16 @@ export default function SuggestedAnswer({ q, onClose, autoStart = true }: { q: D
         const isOpen = open?.id === v.id;
         if (!isOpen) {
           return (
-            <button key={v.id} id={`sv-${v.id}`} data-version={i + 1} className="card flex w-full scroll-mt-20 items-center justify-between gap-2 !py-3 text-left" onClick={() => setOpenId(v.id)}>
-              <span className="min-w-0">
-                <span className="block text-sm font-semibold">💡 {versionLabel(v, i)}</span>
-                <span className="line-clamp-1 text-xs text-slate-500 dark:text-slate-400">{v.answer}</span>
-              </span>
-              <Icon name="chevron-down" className="h-4 w-4 shrink-0 text-slate-400" />
-            </button>
+            <div key={v.id} id={`sv-${v.id}`} data-version={i + 1} className="card flex w-full scroll-mt-20 items-center gap-1 !py-2 !pr-2">
+              <button className="flex min-w-0 flex-1 items-center justify-between gap-2 py-1 text-left" onClick={() => setOpenId(v.id)} aria-expanded="false">
+                <span className="min-w-0">
+                  <span className="block text-sm font-semibold">💡 {versionLabel(v, i)}</span>
+                  <span className="line-clamp-1 text-xs text-slate-500 dark:text-slate-400">{v.answer}</span>
+                </span>
+                <Icon name="chevron-down" className="h-4 w-4 shrink-0 text-slate-400" />
+              </button>
+              <button className="rounded-lg p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/40" disabled={!!busy} onClick={() => remove(v)} aria-label={`Delete version V${i + 1}`} title="Delete this version" data-testid="version-delete"><Icon name="trash" className="h-4 w-4" /></button>
+            </div>
           );
         }
         const controls = (
@@ -152,7 +157,7 @@ export default function SuggestedAnswer({ q, onClose, autoStart = true }: { q: D
             </div>
             <div className="flex items-center justify-between gap-2">
               <span className="text-xs font-medium text-slate-500" data-testid="version-label">{versionLabel(v, i)}</span>
-              <button className="btn-ghost !px-2 !py-1 text-xs text-rose-600 dark:text-rose-400" disabled={!!busy} onClick={() => remove(v, i)} title="Delete this version"><Icon name="trash" className="h-3.5 w-3.5" /> Delete</button>
+              <button className="rounded-lg p-2 text-rose-600 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-950/40" disabled={!!busy} onClick={() => remove(v)} aria-label={`Delete version V${i + 1}`} title="Delete this version" data-testid="version-delete"><Icon name="trash" className="h-4 w-4" /></button>
             </div>
           </div>
         );
@@ -177,12 +182,11 @@ export default function SuggestedAnswer({ q, onClose, autoStart = true }: { q: D
 
       <div className="flex flex-wrap items-center gap-2">
         {list.length > 0 && (
-          <button className="btn-soft !py-1.5 text-sm" disabled={!!busy || list.length >= MAX_VERSIONS || !ai.hasKey} onClick={() => add(open?.level || loadBuilderPrefs().level, open?.seconds || 45)}>
+          <button className="btn-soft !py-1.5 text-sm" disabled={!!busy || !ai.hasKey} onClick={() => add(open?.level || loadBuilderPrefs().level, open?.seconds || 45)}>
             ➕ Another angle
           </button>
         )}
-        {list.length >= MAX_VERSIONS && <span className="muted text-xs">Max {MAX_VERSIONS} versions. Delete one to add more.</span>}
-        {list.length > 0 && list.length < MAX_VERSIONS && <span className="muted text-xs">{list.length}/{MAX_VERSIONS} versions · {lengthText(open?.seconds || 45)}</span>}
+        {list.length > 0 && <span className="muted text-xs" data-testid="version-count">{list.length} version{list.length > 1 ? 's' : ''} saved · {lengthText(open?.seconds || 45)}</span>}
         {onClose && <button className="btn-ghost ml-auto !px-2.5 !py-1.5 text-xs" onClick={onClose}>🙈 Hide</button>}
       </div>
     </div>

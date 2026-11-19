@@ -123,6 +123,17 @@ export function suggestionsFrom(raw: unknown, qid: string): SuggestedAnswer[] {
     .map((v, i) => ({ ...v, id: v.id || `${qid}-v${i + 1}`, phrases: Array.isArray(v.phrases) ? v.phrases : [], ideas: v.ideas || {} }));
 }
 
+type SuggestedRow = { id: string; question_id: string; data: Json; created_at: string };
+function suggestedFromRow(r: SuggestedRow): SuggestedAnswer | null {
+  const v = r.data as unknown as SuggestedAnswer;
+  if (!v || typeof v.answer !== 'string' || !Array.isArray(v.parts)) return null;
+  return { ...v, id: r.id, phrases: Array.isArray(v.phrases) ? v.phrases : [], ideas: v.ideas || {}, createdAt: v.createdAt || ms(r.created_at) };
+}
+function suggestedRow(userId: string, questionId: string, v: SuggestedAnswer) {
+  const { id, ...data } = v;
+  return { id, user_id: userId, question_id: questionId, data: j(data), created_at: ts(v.createdAt), updated_at: new Date().toISOString() };
+}
+
 function questionRow(userId: string, q: DailyQuestion, clientId?: string) {
   return {
     id: q.id,
@@ -134,8 +145,8 @@ function questionRow(userId: string, q: DailyQuestion, clientId?: string) {
     starters: q.starters || [],
     question_date: date(q.date),
     ...(q.seed ? { seed: q.seed.slice(0, 300) } : {}),
-    // Backward compatible: the latest version's fields stay at the top level (older app builds read those).
-    suggested: q.suggestions?.length ? j({ ...q.suggestions[q.suggestions.length - 1], versions: q.suggestions }) : null,
+    // Versions live in suggested_answers (one row each, deleted permanently on their own); the old jsonb stays empty.
+    suggested: null,
     created_at: ts(q.createdAt),
   };
 }
@@ -256,6 +267,8 @@ function settingsRow(userId: string, s: Settings) {
     rate: clamp(num(s.rate, 1), 0.5, 2),
     onboarded: !!s.onboarded,
     fast_mode: s.fastMode !== false,
+    ask_aloud: s.askAloud !== false,
+    listening_mode: !!s.listeningMode,
   };
 }
 
@@ -317,6 +330,14 @@ export async function loadState(userId: string): Promise<AppState> {
     fetchAll<{ id: string; created_at: string; pron_score: unknown }>('shadowing_attempts', 'id,created_at,pron_score:pronunciation->score', 'created_at').catch(() => []),
     fetchAll<RecordingRow>('recordings', RECORDING_COLS, 'created_at').catch(() => []),
   ]);
+  const versionRows = await fetchAll<SuggestedRow>('suggested_answers', 'id,question_id,data,created_at', 'created_at').catch(() => null);
+  const versionsByQ = new Map<string, SuggestedAnswer[]>();
+  for (const r of versionRows || []) {
+    const v = suggestedFromRow(r);
+    if (v) versionsByQ.set(r.question_id, [...(versionsByQ.get(r.question_id) || []), v]);
+  }
+  // Table rows win; the old jsonb is only read if the table can't be read (old database).
+  const versionsOf = (q: QuestionRowIn) => (versionRows ? versionsByQ.get(q.id) || [] : suggestionsFrom(q.suggested, q.id));
 
   topicIds.clear();
   topicSlugs.clear();
@@ -363,11 +384,13 @@ export async function loadState(userId: string): Promise<AppState> {
       rate: num(s?.rate, 1),
       onboarded: !!s?.onboarded,
       fastMode: s?.fast_mode !== false,
+      askAloud: (s as { ask_aloud?: boolean } | null)?.ask_aloud !== false,
+      listeningMode: !!(s as { listening_mode?: boolean } | null)?.listening_mode,
       demo: getDemoMode(),
     },
     questions: questions.map((q) => ({
       id: q.id, date: q.question_date, topicId: (q.topic_id && topicSlugs.get(q.topic_id)) || '', topicName: q.topic_name,
-      question: q.question, starters: q.starters || [], ...(q.seed ? { seed: q.seed } : {}), ...(suggestionsFrom(q.suggested, q.id).length ? { suggestions: suggestionsFrom(q.suggested, q.id) } : {}), createdAt: ms(q.created_at),
+      question: q.question, starters: q.starters || [], ...(q.seed ? { seed: q.seed } : {}), ...(versionsOf(q).length ? { suggestions: versionsOf(q) } : {}), createdAt: ms(q.created_at),
     })),
     entries: answers.map((a) => {
       const retryFlu = flu.get(`${a.id}:retry`);
@@ -460,6 +483,14 @@ export async function syncChanges(userId: string, prev: AppState, next: AppState
     const ids = new Set(next.questions.map((q) => q.id));
     const gone = prev.questions.filter((q) => !ids.has(q.id)).map((q) => q.id);
     for (const c of chunks(gone)) check(await supabase.from('daily_questions').delete().in('id', c), 'Delete questions');
+    // Suggested-answer versions (after the questions, for the foreign key). A removed version is deleted for good.
+    const oldV = new Map(prev.questions.flatMap((q) => (q.suggestions || []).map((v) => [v.id, v] as const)));
+    const newV = next.questions.flatMap((q) => (q.suggestions || []).map((v) => ({ q: q.id, v })));
+    const changedV = newV.filter(({ v }) => oldV.get(v.id) !== v && isUuid(v.id));
+    for (const c of chunks(changedV)) check(await supabase.from('suggested_answers').upsert(c.map(({ q, v }) => suggestedRow(userId, q, v))), 'Save suggested answers');
+    const keepV = new Set(newV.map(({ v }) => v.id));
+    const goneV = [...oldV.keys()].filter((id) => !keepV.has(id) && isUuid(id));
+    for (const c of chunks(goneV)) check(await supabase.from('suggested_answers').delete().in('id', c), 'Delete suggested answers');
   }
 
   // Answers (+ their fluency stats)

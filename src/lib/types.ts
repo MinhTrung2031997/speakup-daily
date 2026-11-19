@@ -25,6 +25,10 @@ export interface Settings {
   rate: number;
   onboarded: boolean;
   fastMode: boolean;
+  /** Read the question aloud when it opens (default on). */
+  askAloud?: boolean;
+  /** Listening mode: hide the question text until answered. */
+  listeningMode?: boolean;
   /** Demo mode (sample AI answers). Saved per device, not in the database. */
   demo: boolean;
 }
