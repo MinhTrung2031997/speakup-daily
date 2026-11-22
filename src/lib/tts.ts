@@ -85,5 +85,7 @@ export async function speakNatural(text: string, opts: { accent?: Accent; voiceU
 /** What is said aloud for a question: a casual lead-in ("Hey Trung, quick question…") + the question. */
 export function spokenQuestion(question: string, name?: string): string {
   const first = (name || '').trim().split(/\s+/)[0];
-  return `Hey${first ? ` ${first}` : ''}, quick question… ${question.trim()}`;
+  // Questions often already open with "Hey Trung!" — drop that greeting so it isn't said twice.
+  const q = question.trim().replace(/^(?:hey|hi|hello|yo)(?:\s+there)?(?:[\s,]+[A-Z][\p{L}'-]*)?\s*[!,.…:-]*\s*/iu, '').trim() || question.trim();
+  return `Hey${first ? ` ${first}` : ''}, quick question… ${q}`;
 }
