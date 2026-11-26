@@ -8,7 +8,7 @@ const BANK = new Set(CATALOGUE.flatMap((c) => c.questions.map((q) => norm(q.text
 const BASE = process.env.BASE || 'http://127.0.0.1:4173';
 const REAL = process.env.REAL === '1';
 const WAV = process.env.WAV || '';
-const PREFIX = process.env.PREFIX || (REAL ? '102' : '103');
+const PREFIX = process.env.PREFIX || (REAL ? (process.env.BASE ? '104' : '102') : '103');
 const OUT = process.env.OUT || new URL('../screenshots/', import.meta.url).pathname;
 const { TEST_EMAIL, TEST_PASSWORD } = process.env;
 if (!TEST_EMAIL || !TEST_PASSWORD) throw new Error('Set TEST_EMAIL and TEST_PASSWORD');
