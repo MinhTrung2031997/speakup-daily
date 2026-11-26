@@ -353,8 +353,12 @@ export function pickDailyTopic(topics: Topic[], lastTopicId?: string, rand = Mat
   const active = topics.filter((t) => t.active);
   const pool0 = active.length ? active : topics;
   const pool = pool0.length > 1 ? pool0.filter((t) => t.id !== lastTopicId) : pool0;
-  const unused = past ? pool.filter((t) => hasUnusedSeed(t.id, past)) : pool;
-  const chosen = unused.length ? unused : pool;
+  // Work & tech topics at most about once a week: skip them if one was used in the last 6 questions.
+  const isWork = (id?: string) => !!id && BY_ID.get(id)?.group === 'Work & tech';
+  const recentWork = !!past && past.slice(-6).some((x) => isWork(x.topicId));
+  const pool1 = recentWork && pool.some((t) => !isWork(t.id)) ? pool.filter((t) => !isWork(t.id)) : pool;
+  const unused = past ? pool1.filter((t) => hasUnusedSeed(t.id, past)) : pool1;
+  const chosen = unused.length ? unused : pool1;
   const weighted = chosen.flatMap((t) => (t.favorite ? [t, t, t] : [t]));
   return weighted[Math.floor(rand() * weighted.length)];
 }

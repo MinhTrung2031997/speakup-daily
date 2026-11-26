@@ -41,6 +41,11 @@ export interface QuestionResult {
 const WORK_TOPIC = /work|career|job|tech|software|engineer|coding|AI\b|office|interview|meeting/i;
 const NO_JOB_RULE = `- Do NOT mention the learner's job, profession, coding, software or tech unless the topic itself is about work or tech. Never start with "As a ...". Keep it about everyday life, people, places, feelings, opinions and experiences anyone could talk about.`;
 
+/** The profile the AI sees for a topic: no job unless the topic is about work or tech. */
+export function profileForTopic(p: Profile, topic: string): Profile {
+  return WORK_TOPIC.test(topic) ? p : { ...p, job: '' };
+}
+
 export async function generateQuestion(cfg: GeminiConfig, fullProfile: Profile, topic: string, past: string[], seed = ''): Promise<QuestionResult> {
   const workTopic = WORK_TOPIC.test(topic);
   const profile: Profile = workTopic ? fullProfile : { ...fullProfile, job: '' };

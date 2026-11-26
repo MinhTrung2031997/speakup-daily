@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useStore } from '../lib/store';
 import { useAIConfig } from '../lib/hooks';
-import { builderAnswer, DEFAULT_SLOTS, inferQuestionType, LENGTH_LABEL, lengthText, nextStance } from '../lib/ai';
+import { builderAnswer, profileForTopic, DEFAULT_SLOTS, inferQuestionType, LENGTH_LABEL, lengthText, nextStance } from '../lib/ai';
 import { errorText } from '../lib/gemini';
 import { loadBuilderPrefs } from '../lib/builderPrefs';
 import { cleanPhrase } from '../lib/diff';
@@ -91,7 +91,7 @@ export default function SuggestedAnswer({ q, onClose, autoStart = true }: { q: D
   /** Another level / length of one version: saved as a NEW version (same stance); the old one is kept. */
   const rewrite = (v: Suggested, level: BuilderLevel, seconds: BuilderLength) => run('rewrite', async () => {
     const others = current().filter((x) => x.id !== v.id);
-    const nv = await suggest(ai, state.profile, q, level, seconds, others, v.stance);
+    const nv = await suggest(ai, profileForTopic(state.profile, q.topicName), q, level, seconds, others, v.stance);
     save([...current(), nv]);
     addPhrases(nv.phrases, q.question, 'suggested'); // auto-collect highlighted phrases into the word bank
     setOpenId(nv.id);
@@ -101,7 +101,7 @@ export default function SuggestedAnswer({ q, onClose, autoStart = true }: { q: D
   /** First version, or "➕ Another angle": a new version added below the others. */
   const add = (level: BuilderLevel, seconds: BuilderLength) => run('add', async () => {
     const prev = current();
-    const nv = await suggest(ai, state.profile, q, level, seconds, prev, prev.length ? nextStance(prev.map((x) => x.stance)) : undefined);
+    const nv = await suggest(ai, profileForTopic(state.profile, q.topicName), q, level, seconds, prev, prev.length ? nextStance(prev.map((x) => x.stance)) : undefined);
     save([...prev, nv]);
     addPhrases(nv.phrases, q.question, 'suggested'); // auto-collect highlighted phrases into the word bank
     setOpenId(nv.id);
