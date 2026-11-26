@@ -228,7 +228,7 @@ export function wordUseQuestionPrompt(word: WordEntry | string, topic?: string):
 Meaning: ${meaning || '(not given)'}
 Topic slug: ${topicId || '(none)'}
 
-Write ONE short personal question (max 16 words) about the learner's real life — work as a software engineer, life in Saigon, daily habits, or the topic above. He should be able to answer in 1-2 spoken sentences and must use the phrase. Do NOT use the phrase in the question itself.
+Write ONE short personal question (max 16 words) about the learner's real life — daily habits, life in Saigon, free time, or the topic above (don't focus on his job). He should be able to answer in 1-2 spoken sentences and must use the phrase. Do NOT use the phrase in the question itself.
 
 JSON shape: {"question": string}`;
 }

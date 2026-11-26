@@ -36,7 +36,15 @@ export interface QuestionResult {
   starters: string[];
 }
 
-export async function generateQuestion(cfg: GeminiConfig, profile: Profile, topic: string, past: string[], seed = ''): Promise<QuestionResult> {
+// Trung (2026-11-26): daily questions mentioned "as a software engineer" far too often. Only bring the job
+// in when the topic itself is about work or tech; otherwise the AI never sees it.
+const WORK_TOPIC = /work|career|job|tech|software|engineer|coding|AI\b|office|interview|meeting/i;
+const NO_JOB_RULE = `- Do NOT mention the learner's job, profession, coding, software or tech unless the topic itself is about work or tech. Never start with "As a ...". Keep it about everyday life, people, places, feelings, opinions and experiences anyone could talk about.`;
+
+export async function generateQuestion(cfg: GeminiConfig, fullProfile: Profile, topic: string, past: string[], seed = ''): Promise<QuestionResult> {
+  const workTopic = WORK_TOPIC.test(topic);
+  const profile: Profile = workTopic ? fullProfile : { ...fullProfile, job: '' };
+  const jobRule = workTopic ? '' : `\n${NO_JOB_RULE}`;
   const prompt = seed
     ? `Learner profile:
 ${profileText(profile)}
@@ -44,7 +52,7 @@ ${profileText(profile)}
 Topic: ${topic}
 Seed question: "${seed}"
 
-Use the seed question as today's question. You may lightly personalise the wording to the learner's real life (job, city, hobbies), but keep the same meaning and the same kind of question, keep it 1–2 short sentences, easy B1 words, natural and casual like a Discord chat message. If it already fits, return it unchanged.
+Use the seed question as today's question. You may lightly personalise the wording to the learner's real life (city, hobbies), but keep the same meaning and the same kind of question, keep it 1–2 short sentences, easy B1 words, natural and casual like a Discord chat message. If it already fits, return it unchanged.${jobRule}
 
 Also write 3 short "idea starters": hints (3–8 words each) that help the learner think of WHAT to say, based on their profile. Hints only, not full answers.
 
@@ -56,7 +64,7 @@ Topic: ${topic}
 
 Write ONE conversation question that is clearly about this topic (use the profile only to personalise it, never to change the subject), like a friendly message someone would post in a casual Discord voice/text chat.
 - Natural, casual, open-ended (not yes/no), 1–2 short sentences, easy B1 words.
-- It should invite a personal opinion or story, and fit the learner's real life when possible.
+- It should invite a personal opinion or story. Vary the angle from day to day.${jobRule}
 - It must be clearly different from all of these past questions:
 ${past.length ? past.slice(-60).map((q) => `  - ${q}`).join('\n') : '  (none yet)'}
 
