@@ -5,14 +5,14 @@ import { supabase, SUPABASE_URL } from './supabase';
 import { getDemoMode } from './gemini';
 import { accentVoice, preferredAccent, speakWith, stopSpeaking, ttsSupported } from './speech';
 
-export type Accent = 'US' | 'UK';
+export type Accent = 'US' | 'UK' | 'AU';
 const urls = new Map<string, Promise<string>>(); // text|accent -> signed URL (valid 1 h)
 let current: HTMLAudioElement | null = null;
 let stopCurrent: (() => void) | null = null;
 
 /** Signed URL for natural speech of `text` (generated once, then served from the cache). */
-export function naturalSpeechUrl(text: string, accent: Accent = preferredAccent()): Promise<string> {
-  const k = `${accent}|${text}`;
+export function naturalSpeechUrl(text: string, accent: Accent = preferredAccent(), voice = ''): Promise<string> {
+  const k = `${accent}|${voice}|${text}`;
   let p = urls.get(k);
   if (!p) {
     p = (async () => {
@@ -26,7 +26,7 @@ export function naturalSpeechUrl(text: string, accent: Accent = preferredAccent(
         const res = await fetch(`${SUPABASE_URL}/functions/v1/tts`, {
           method: 'POST', signal: ctrl.signal,
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ text, accent }),
+          body: JSON.stringify(voice ? { text, accent, voice } : { text, accent }),
         });
         const out = await res.json().catch(() => null);
         if (!res.ok || !out?.url) throw new Error(out?.error?.message || `TTS ${res.status}`);
@@ -53,19 +53,21 @@ export type VoiceResult = 'natural' | 'browser' | 'blocked' | 'none';
  * Speak `text`: natural voice first, browser voice if that fails. Resolves when playback ends.
  * 'blocked' = the browser refused to auto-play (no tap yet); the caller can show the play button.
  */
-export async function speakNatural(text: string, opts: { accent?: Accent; voiceURI?: string; rate?: number; onStart?: (how: VoiceResult) => void } = {}): Promise<VoiceResult> {
+export async function speakNatural(text: string, opts: { accent?: Accent; voice?: string; voiceURI?: string; rate?: number; pitch?: number; clipEnd?: boolean; onStart?: (how: VoiceResult) => void } = {}): Promise<VoiceResult> {
   stopVoice();
   const accent = opts.accent || preferredAccent();
   let token = {};
   const mine = token;
   stopCurrent = () => { token = {}; };
   try {
-    const url = await naturalSpeechUrl(text, accent);
+    const url = await naturalSpeechUrl(text, accent, opts.voice || '');
     if (token !== mine) return 'none';
     const a = new Audio(url);
     a.playbackRate = opts.rate && opts.rate !== 1 ? opts.rate : 1;
     current = a;
     const ended = new Promise<void>((r) => { a.onended = () => r(); a.onpause = () => r(); a.onerror = () => r(); });
+    // An interrupted line (ends with "—"): cut the last moment so the next speaker cuts in.
+    if (opts.clipEnd) a.ontimeupdate = () => { if (a.duration && a.currentTime >= a.duration - 0.35) a.pause(); };
     try { await a.play(); } catch (e) {
       if ((e as Error)?.name === 'NotAllowedError') return 'blocked';
       throw e;
@@ -77,7 +79,7 @@ export async function speakNatural(text: string, opts: { accent?: Accent; voiceU
     if (token !== mine) return 'none';
     if (!ttsSupported()) return 'none';
     opts.onStart?.('browser');
-    await speakWith(text, { voice: accentVoice(accent, opts.voiceURI || ''), rate: opts.rate || 1, lang: accent === 'UK' ? 'en-GB' : 'en-US' });
+    await speakWith(text, { voice: accentVoice(accent, opts.voiceURI || ''), rate: opts.rate || 1, pitch: opts.pitch, lang: accent === 'UK' ? 'en-GB' : accent === 'AU' ? 'en-AU' : 'en-US' });
     return 'browser';
   }
 }

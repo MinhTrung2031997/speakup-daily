@@ -225,6 +225,53 @@ export function mockResponse(task: string, turns: GeminiTurn[]): unknown {
         { phrase: 'pretty', example: `It was pretty good, to be honest.` },
       ] };
     }
+    case 'roleplay-turn': {
+      const closing = /He has 0 turns left/.test(last);
+      const learner = (last.match(/^Learner: (.*)$/gm) || []).length;
+      return closing
+        ? { line: "Perfect, that's all sorted then. Thanks so much, see you!", goalMet: learner >= 2, usedTwist: false, end: true }
+        : { line: learner === 2 ? "Oh, one thing: we're out of oat milk today. Is regular milk okay?" : 'Got it! And how does that sound to you?', goalMet: learner >= 3, usedTwist: learner === 2, end: false };
+    }
+    case 'roleplay-feedback': {
+      const targets = (() => { try { return JSON.parse(last.match(/^Target phrases: (\[.*\])$/m)?.[1] || '[]') as string[]; } catch { return []; } })();
+      const his = (last.match(/^Learner: (.*)$/gm) || []).map((l) => l.replace(/^Learner: /, ''));
+      const all = his.join(' ').toLowerCase();
+      const used = targets.filter((t) => all.includes(t.toLowerCase()));
+      return {
+        goalMet: his.length >= 2, doneWell: ['You answered every question clearly.', 'You asked a question back to keep it going.'],
+        fixes: his[0] ? [{ his: his[0], better: `Sorry, quick question: ${his[0].replace(/[.!?]+$/, '')}?`, why: 'Opening with a softener sounds more natural.' }] : [],
+        phrasesUsed: used, phrasesMissed: targets.filter((t) => !used.includes(t)), nextTimeTry: 'Try "Would it be possible to…" when you ask for a change.',
+        score: Math.min(9, 4 + his.length), scoreReason: 'Clear and polite, with room for more natural chunks.',
+      };
+    }
+    case 'discord': {
+      const lastBeat = /This is the last beat/.test(last);
+      const jumpIns = (last.match(/^Trung: /gm) || []).length;
+      return lastBeat
+        ? { lines: [{ speaker: 'Priya', text: "Oh no, I've got to run — dinner's ready." }, { speaker: 'Liam', text: 'Catch you later, Trung!' }], cueForTrung: 'Catch you later, Trung!', cueType: 'follow-up', end: true }
+        : { lines: [
+            { speaker: 'Jake', text: jumpIns ? 'Ha, fair point.' : 'Okay so I finally tried that new café —' },
+            { speaker: 'Liam', text: 'Wait, the one with the cat? Mate, the coffee there is so overrated.' },
+            { speaker: 'Priya', text: jumpIns ? 'Trung, would you actually go back there?' : 'Trung, you go there a lot, right? What do you reckon?' },
+          ], cueForTrung: jumpIns ? 'Trung, would you actually go back there?' : 'Trung, you go there a lot, right? What do you reckon?', cueType: jumpIns ? 'follow-up' : 'opinion', end: false };
+    }
+    case 'story-polish': {
+      const said = (last.match(/"""([\s\S]*?)"""/)?.[1] || '').trim();
+      const body = said.replace(/\buhm?\b,?\s*/gi, '').replace(/\s+/g, ' ');
+      return {
+        polished: `So, this one's a good one. ${body.charAt(0).toUpperCase()}${body.slice(1).replace(/[.!?]*$/, '.')} Looking back, it was totally worth it, and I still laugh about it.`,
+        structure: 'Hook -> Context -> What happened -> How it ended -> Point',
+        phrasesToKeep: ["this one's a good one", 'looking back', 'totally worth it'],
+        beats: ['Hook: a good one', 'Where and when', 'What went wrong', 'Worth it, still laugh'],
+      };
+    }
+    case 'story-retell': {
+      const said = (last.match(/His new telling[^"]*"""([\s\S]*?)"""/)?.[1] || '').toLowerCase();
+      const beats = (() => { try { return JSON.parse(last.match(/Retell checklist beats: (\[.*\])/)?.[1] || '[]') as string[]; } catch { return []; } })();
+      const reused = ["this one's a good one", 'looking back', 'totally worth it'].filter((p) => said.includes(p));
+      const covered = said.length > 40 ? beats.slice(0, 3) : beats.slice(0, 1);
+      return { beatsCovered: covered, beatsMissed: beats.filter((b) => !covered.includes(b)), phrasesReused: reused, fix: { his: said.split(/[.!?]/)[0] || '', better: 'So this one time, we got completely lost.', why: '"This one time" is how people start a story.' } };
+    }
     case 'ping':
       return { message: 'Hello! Demo mode is working 🎉' };
     default:

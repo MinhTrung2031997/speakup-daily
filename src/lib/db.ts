@@ -19,7 +19,7 @@ import { getDemoMode } from './gemini';
 import type {
   ReplayInfo,
   AppState, BuilderInfo, ListenSession, ChatFeedback, ChatMessage, ChatSession, DailyQuestion, Entry, FluencyStats, Phrase, Profile,
-  PronunciationResult, RecordingItem, RecordingKind, RetryResult, ReviewLog, Settings, ShadowAttemptInput, SoundItem, SuggestedAnswer, Topic, Upgrade, WordSession, SaySession, HuntDay, HuntUse, OverusedSwap,
+  PronunciationResult, RecordingItem, RecordingKind, RetryResult, ReviewLog, Settings, ShadowAttemptInput, SoundItem, SuggestedAnswer, Topic, Upgrade, WordSession, SaySession, HuntDay, HuntUse, OverusedSwap, PartnerSession, StoryEntry,
 } from './types';
 
 export const PRESET_TOPICS: Topic[] = TOPIC_CATALOGUE.map((t) => ({ id: t.id, name: t.name, emoji: t.emoji, active: true }));
@@ -236,6 +236,30 @@ const huntUseRow = (userId: string, u: HuntUse) => ({
   source: HUNT_SOURCES.includes(u.source) ? u.source : 'daily', level: HUNT_LEVELS.includes(u.level) ? u.level : 'absent',
   evidence: (u.evidence || '').slice(0, 1000), note: (u.note || '').slice(0, 500), better: (u.better || '').slice(0, 1000), question: (u.question || '').slice(0, 1000), created_at: ts(u.createdAt),
 });
+const partnerRow = (userId: string, x: PartnerSession) => ({
+  id: x.id, user_id: userId, session_date: date(x.date), kind: x.kind === 'discord' ? 'discord' : 'scene', ref: (x.ref || '').slice(0, 120), title: (x.title || '').slice(0, 200),
+  voice_only: !!x.voiceOnly, turns: j(x.turns.slice(-80).map((t) => ({ ...t, text: t.text.slice(0, 2000) }))), feedback: x.feedback ? j(x.feedback) : null,
+  created_at: ts(x.createdAt), updated_at: ts(x.updatedAt),
+});
+type PartnerRowIn = { id: string; session_date: string; kind: string; ref: string; title: string; voice_only: boolean; turns: Json; feedback: Json | null; created_at: string; updated_at: string };
+const partnerFromRow = (r: PartnerRowIn): PartnerSession => ({
+  id: r.id, date: r.session_date, kind: r.kind === 'discord' ? 'discord' : 'scene', ref: r.ref, title: r.title, voiceOnly: !!r.voice_only,
+  turns: (Array.isArray(r.turns) ? r.turns : []) as unknown as PartnerSession['turns'],
+  ...(r.feedback && typeof r.feedback === 'object' ? { feedback: r.feedback as unknown as PartnerSession['feedback'] } : {}),
+  createdAt: ms(r.created_at), updatedAt: ms(r.updated_at),
+});
+const storyRow = (userId: string, x: StoryEntry) => ({
+  user_id: userId, slot_id: x.slot.slice(0, 60), transcript: x.transcript.slice(0, 6000), polished: x.polished.slice(0, 4000), structure: x.structure.slice(0, 300),
+  phrases_to_keep: j(x.phrasesToKeep), beats: j(x.beats), retell: (x.retell || '').slice(0, 6000), retell_check: x.check ? j(x.check) : null,
+  retells: Math.max(0, Math.round(x.retells || 0)), created_at: ts(x.createdAt), updated_at: ts(x.updatedAt),
+});
+type StoryRowIn = { slot_id: string; transcript: string; polished: string; structure: string; phrases_to_keep: Json; beats: Json; retell: string; retell_check: Json | null; retells: number; created_at: string; updated_at: string };
+const storyFromRow = (r: StoryRowIn): StoryEntry => ({
+  slot: r.slot_id, transcript: r.transcript, polished: r.polished, structure: r.structure,
+  phrasesToKeep: (Array.isArray(r.phrases_to_keep) ? r.phrases_to_keep : []) as string[], beats: (Array.isArray(r.beats) ? r.beats : []) as string[],
+  retell: r.retell, ...(r.retell_check && typeof r.retell_check === 'object' ? { check: r.retell_check as unknown as StoryEntry['check'] } : {}),
+  retells: num(r.retells), createdAt: ms(r.created_at), updatedAt: ms(r.updated_at),
+});
 const swapRow = (userId: string, w: OverusedSwap) => ({ user_id: userId, word: w.word.slice(0, 60), swaps: j(w.swaps), created_at: ts(w.createdAt) });
 
 function listenRow(userId: string, l: ListenSession) {
@@ -400,6 +424,8 @@ export async function loadState(userId: string): Promise<AppState> {
   const huntDays = await fetchAll<{ id: string; hunt_date: string; targets: Json; created_at: string }>('word_hunt_days', 'id,hunt_date,targets,created_at', 'created_at').catch(() => []);
   const huntUses = await fetchAll<{ id: string; hunt_date: string; phrase: string; answer_ref: string; source: string; level: string; evidence: string; note: string; better: string; question: string; created_at: string }>(
     'word_hunt_uses', 'id,hunt_date,phrase,answer_ref,source,level,evidence,note,better,question,created_at', 'created_at').catch(() => []);
+  const partnerRows = await fetchAll<PartnerRowIn>('partner_sessions', 'id,session_date,kind,ref,title,voice_only,turns,feedback,created_at,updated_at', 'created_at').catch(() => []);
+  const storyRows = await fetchAll<StoryRowIn>('story_bank', 'slot_id,transcript,polished,structure,phrases_to_keep,beats,retell,retell_check,retells,created_at,updated_at', 'created_at').catch(() => []);
   const huntSwaps = await fetchAll<{ word: string; swaps: Json; created_at: string }>('overused_swaps', 'word,swaps,created_at', 'created_at').catch(() => []);
   const versionRows = await fetchAll<SuggestedRow>('suggested_answers', 'id,question_id,data,created_at', 'created_at').catch(() => null);
   const versionsByQ = new Map<string, SuggestedAnswer[]>();
@@ -502,6 +528,7 @@ export async function loadState(userId: string): Promise<AppState> {
     })),
     wordSessions: wordRows.map(wordSessionFromRow),
     saySessions: sayRows.map(sayFromRow),
+    partner: { sessions: partnerRows.map(partnerFromRow), stories: storyRows.map(storyFromRow) },
     hunt: {
       days: huntDays.map((d) => ({ id: d.id, date: d.hunt_date, targets: (Array.isArray(d.targets) ? d.targets : []) as unknown as HuntDay['targets'], createdAt: ms(d.created_at) })),
       uses: huntUses.map((u) => ({ id: u.id, date: u.hunt_date, phrase: u.phrase, ref: u.answer_ref, source: u.source as HuntUse['source'], level: u.level as HuntUse['level'], evidence: u.evidence, note: u.note, better: u.better, question: u.question, createdAt: ms(u.created_at) })),
@@ -646,6 +673,28 @@ export async function syncChanges(userId: string, prev: AppState, next: AppState
       const old = new Map(pn.swaps.map((w) => [w.word, w]));
       const changed = nn.swaps.filter((w) => old.get(w.word) !== w);
       for (const c of chunks(changed)) check(await supabase.from('overused_swaps').upsert(c.map((w) => swapRow(userId, w)), { onConflict: 'user_id,word' }), 'Save swaps');
+    }
+  }
+
+  // Voice partner: role-play / Discord sessions (history can be deleted) and the Story bank (one row per slot)
+  {
+    const pn = prev.partner || { sessions: [], stories: [] };
+    const nn = next.partner || { sessions: [], stories: [] };
+    if (pn.sessions !== nn.sessions) {
+      const old = byId(pn.sessions);
+      const changed = nn.sessions.filter((x) => old.get(x.id) !== x && isUuid(x.id));
+      for (const c of chunks(changed)) check(await supabase.from('partner_sessions').upsert(c.map((x) => partnerRow(userId, x))), 'Save conversation');
+      const ids = new Set(nn.sessions.map((x) => x.id));
+      const gone = pn.sessions.filter((x) => !ids.has(x.id)).map((x) => x.id);
+      for (const c of chunks(gone)) check(await supabase.from('partner_sessions').delete().in('id', c), 'Delete conversation');
+    }
+    if (pn.stories !== nn.stories) {
+      const old = new Map(pn.stories.map((x) => [x.slot, x]));
+      const changed = nn.stories.filter((x) => old.get(x.slot) !== x);
+      for (const c of chunks(changed)) check(await supabase.from('story_bank').upsert(c.map((x) => storyRow(userId, x)), { onConflict: 'user_id,slot_id' }), 'Save story');
+      const slots = new Set(nn.stories.map((x) => x.slot));
+      const gone = pn.stories.filter((x) => !slots.has(x.slot)).map((x) => x.slot);
+      for (const c of chunks(gone)) check(await supabase.from('story_bank').delete().in('slot_id', c), 'Delete story');
     }
   }
 
@@ -948,7 +997,7 @@ export async function importLegacy(userId: string, legacy: AppState, current: Ap
 // ---------------------------------------------------------------------------
 export async function resetAll(userId: string): Promise<void> {
   // Children cascade: answers -> fluency_stats, phrases -> phrase_reviews, chat_sessions -> chat_messages.
-  for (const t of ['recordings', 'shadowing_attempts', 'fluency_stats', 'answers', 'phrases', 'chat_sessions', 'daily_questions', 'daily_activity', 'listening_sessions', 'pronunciation_items', 'word_sessions', 'say_sessions', 'word_hunt_days', 'word_hunt_uses', 'overused_swaps'] as const) {
+  for (const t of ['recordings', 'shadowing_attempts', 'fluency_stats', 'answers', 'phrases', 'chat_sessions', 'daily_questions', 'daily_activity', 'listening_sessions', 'pronunciation_items', 'word_sessions', 'say_sessions', 'word_hunt_days', 'word_hunt_uses', 'overused_swaps', 'partner_sessions', 'story_bank'] as const) {
     check(await supabase.from(t).delete().eq('user_id', userId), `Delete ${t}`);
   }
   check(await supabase.from('topics').delete().eq('user_id', userId).eq('is_custom', true), 'Delete custom topics');

@@ -770,6 +770,18 @@ export type Database = {
         Update: { answer_ref?: string; better?: string; created_at?: string; evidence?: string; hunt_date?: string; id?: string; level?: string; note?: string; phrase?: string; question?: string; source?: string; user_id?: string }
         Relationships: []
       }
+      partner_sessions: {
+        Row: { created_at: string; feedback: Json | null; id: string; kind: string; ref: string; session_date: string; title: string; turns: Json; updated_at: string; user_id: string; voice_only: boolean }
+        Insert: { created_at?: string; feedback?: Json | null; id?: string; kind: string; ref?: string; session_date?: string; title?: string; turns?: Json; updated_at?: string; user_id?: string; voice_only?: boolean }
+        Update: { created_at?: string; feedback?: Json | null; id?: string; kind?: string; ref?: string; session_date?: string; title?: string; turns?: Json; updated_at?: string; user_id?: string; voice_only?: boolean }
+        Relationships: []
+      }
+      story_bank: {
+        Row: { beats: Json; created_at: string; phrases_to_keep: Json; polished: string; retell: string; retell_check: Json | null; retells: number; slot_id: string; structure: string; transcript: string; updated_at: string; user_id: string }
+        Insert: { beats?: Json; created_at?: string; phrases_to_keep?: Json; polished?: string; retell?: string; retell_check?: Json | null; retells?: number; slot_id: string; structure?: string; transcript?: string; updated_at?: string; user_id?: string }
+        Update: { beats?: Json; created_at?: string; phrases_to_keep?: Json; polished?: string; retell?: string; retell_check?: Json | null; retells?: number; slot_id?: string; structure?: string; transcript?: string; updated_at?: string; user_id?: string }
+        Relationships: []
+      }
       overused_swaps: {
         Row: { created_at: string; swaps: Json; user_id: string; word: string }
         Insert: { created_at?: string; swaps?: Json; user_id?: string; word: string }

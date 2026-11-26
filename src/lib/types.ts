@@ -1,5 +1,6 @@
 import type { SayGrade, SayItBetter } from './sayItBetter';
 import type { HuntLevel } from './wordHunt';
+import type { RolePlayFeedback, StoryRetellCheck } from './roleplay';
 
 export interface Profile {
   name: string;
@@ -177,7 +178,7 @@ export interface SuggestedAnswer {
 
 export type UsageLevel = 'natural' | 'understandable' | 'off';
 export type ReviewDrill = 'use' | 'fill' | 'situation' | 'speed' | 'replay';
-export type PhraseOrigin = 'answer' | 'suggested' | 'builder' | 'listen' | 'manual' | 'words' | 'say';
+export type PhraseOrigin = 'answer' | 'suggested' | 'builder' | 'listen' | 'manual' | 'words' | 'say' | 'roleplay' | 'story';
 
 export interface ReviewLog {
   date: string;
@@ -242,6 +243,8 @@ export interface AppState {
   saySessions: SaySession[];
   /** Word tracker: daily target words, how answers used them, cached swaps for overused words. */
   hunt: HuntState;
+  /** Voice partner (Chat tab): role-play / Discord sessions and the Story bank. */
+  partner: PartnerState;
   sounds: SoundItem[];
   /** Saved mic recordings (recordings table + private bucket), oldest first. Kept permanently. */
   recordings: RecordingItem[];
@@ -461,3 +464,46 @@ export interface HuntUse {
 }
 export interface OverusedSwap { word: string; swaps: { phrase: string; example: string }[]; createdAt: number }
 export interface HuntState { days: HuntDay[]; uses: HuntUse[]; swaps: OverusedSwap[] }
+
+/* ---------- Voice partner (Chat tab presets; EL's content in roleplay.ts) ---------- */
+export interface PartnerTurn {
+  role: 'ai' | 'user';
+  /** Discord friend name (AI lines in the Discord group). */
+  speaker?: string;
+  text: string;
+  /** A canned "you still there?" nudge after a missed 5-second start (not sent to the model). */
+  nudge?: boolean;
+}
+
+export interface PartnerSession {
+  id: string;
+  date: string;
+  kind: 'scene' | 'discord';
+  /** Scene id, or the Discord topic. */
+  ref: string;
+  title: string;
+  voiceOnly: boolean;
+  turns: PartnerTurn[];
+  feedback?: RolePlayFeedback;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface StoryEntry {
+  slot: string;
+  transcript: string;
+  polished: string;
+  structure: string;
+  phrasesToKeep: string[];
+  beats: string[];
+  retell: string;
+  check?: StoryRetellCheck;
+  retells: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface PartnerState {
+  sessions: PartnerSession[];
+  stories: StoryEntry[];
+}

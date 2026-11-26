@@ -269,9 +269,13 @@ export function preferredAccent(): 'US' | 'UK' {
 }
 
 /** A voice for the accent: the user's chosen voice if it already matches, else the best voice for that accent. */
-export function accentVoice(accent: 'US' | 'UK', voiceURI: string): SpeechSynthesisVoice | undefined {
+export function accentVoice(accent: 'US' | 'UK' | 'AU', voiceURI: string): SpeechSynthesisVoice | undefined {
   const mine = pickVoice(voiceURI);
-  const want = accent === 'UK' ? 'en-gb' : 'en-us';
+  const want = accent === 'UK' ? 'en-gb' : accent === 'AU' ? 'en-au' : 'en-us';
   if (mine && mine.lang.replace('_', '-').toLowerCase() === want) return mine;
-  return dialogueVoices(accent)[0].voice || mine;
+  if (accent === 'AU' && ttsSupported()) {
+    const au = window.speechSynthesis.getVoices().find((v) => v.lang.replace('_', '-').toLowerCase() === 'en-au');
+    if (au) return au;
+  }
+  return dialogueVoices(accent === 'AU' ? 'UK' : accent)[0].voice || mine;
 }

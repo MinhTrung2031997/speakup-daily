@@ -3,14 +3,21 @@
 // '<user_id>/tts/<sha256>.wav', so the same text + accent is generated only once.
 //
 // POST /functions/v1/tts   Authorization: Bearer <user access token>
-//   { text: string (<= 600 chars), accent?: 'US' | 'UK' }
+//   { text: string (<= 600 chars), accent?: 'US' | 'UK' | 'AU', voice?: one of VOICES (e.g. a different voice per role-play persona) }
 // -> 200 { url: string (signed, 1 h), path: string, cached: boolean, model?: string }
 // -> 4xx/5xx { error: { kind, message } }
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
 const GEMINI = 'https://generativelanguage.googleapis.com/v1beta';
 const PREFERRED = ['gemini-2.5-flash-preview-tts', 'gemini-2.5-flash-tts', 'gemini-2.5-pro-preview-tts'];
-const VOICE = { US: 'Puck', UK: 'Aoede' } as const; // friendly, casual prebuilt voices
+const VOICE = { US: 'Puck', UK: 'Aoede', AU: 'Fenrir' } as const; // default friendly, casual prebuilt voice per accent
+// Extra prebuilt voices a client may pick (role-play personas, Discord friends). Anything else falls back to the accent default.
+const VOICES = new Set(['Puck', 'Aoede', 'Fenrir', 'Charon', 'Kore', 'Leda', 'Orus', 'Zephyr']);
+const TAGS = {
+  US: 'casual, friendly, General American accent',
+  UK: 'casual, friendly, Southern British English (London) accent, British pronunciation',
+  AU: 'casual, friendly, Australian English accent, Australian pronunciation',
+} as const;
 const OUT_RATE = 16000; // stored WAV: 16 kHz mono 16-bit (~32 KB/s)
 const TIMEOUT_MS = 30000;
 
@@ -151,12 +158,12 @@ Deno.serve(async (req) => {
   const key = (Deno.env.get('GEMINI_API_KEY') || '').trim();
   if (!key) return fail(503, 'nokey', 'AI key not set up yet.');
 
-  let body: { text?: unknown; accent?: unknown };
+  let body: { text?: unknown; accent?: unknown; voice?: unknown };
   try { body = await req.json(); } catch { return fail(400, 'bad_request', 'Invalid JSON body.'); }
   const text = typeof body.text === 'string' ? body.text.replace(/\s+/g, ' ').trim() : '';
   if (!text || text.length > 800) return fail(400, 'bad_request', 'Send 1 to 800 characters of text.');
-  const accent = body.accent === 'UK' ? 'UK' : 'US';
-  const voice = VOICE[accent];
+  const accent = body.accent === 'UK' || body.accent === 'AU' ? body.accent : 'US';
+  const voice = typeof body.voice === 'string' && VOICES.has(body.voice) ? body.voice : VOICE[accent];
   const path = `${u.user.id}/tts/${await sha(`v6|${accent}|${voice}|${text}`)}.wav`;
 
   const bucket = sb.storage.from('recordings');
@@ -165,7 +172,7 @@ Deno.serve(async (req) => {
 
   // Short style cue only (a long instruction gets read out loud).
   // A bracketed style tag (tested: a written instruction like "Say casually: ..." gets read out loud).
-  const tag = accent === 'UK' ? 'casual, friendly, Southern British English (London) accent, British pronunciation' : 'casual, friendly, General American accent';
+  const tag = TAGS[accent];
   const prompt = `[${tag}] ${text}`;
   let lastErr = 'No TTS model answered.';
   for (const model of (await models(key)).slice(0, 3)) {

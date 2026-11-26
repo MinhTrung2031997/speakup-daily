@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useStore } from '../lib/store';
 import { todaysPhrases, todaysQuestion, useAIConfig } from '../lib/hooks';
 import { chatFeedback, chatReply } from '../lib/ai';
@@ -12,8 +13,47 @@ import MicInput from '../components/MicInput';
 import ShadowPractice from '../components/ShadowPractice';
 import { ErrorBox, PageTitle, Spinner } from '../components/ui';
 import Icon from '../components/Icon';
+import RolePlay from '../components/partner/RolePlay';
+import StoryBank from '../components/partner/StoryBank';
+import DiscordGroup from '../components/partner/DiscordGroup';
 
+const MODES = [
+  { id: 'free', label: "💬 Today's topic", subtitle: '' },
+  { id: 'scene', label: '🎭 Role-play', subtitle: 'Real-life scenes with a voice partner. Reach the goal, then get feedback.' },
+  { id: 'story', label: '📖 Story bank', subtitle: 'Polish your own stories once, then retell them until they flow.' },
+  { id: 'discord', label: '🎧 Discord group', subtitle: 'Three friends, three accents. Jump in when they ask you.' },
+] as const;
+type Mode = (typeof MODES)[number]['id'];
+
+/** Chat tab: free chat on today's topic, plus the voice partner presets (role-play, Story bank, Discord group). */
 export default function Chat() {
+  const [params, setParams] = useSearchParams();
+  const mode = (MODES.find((m) => m.id === params.get('mode'))?.id || 'free') as Mode;
+  const cur = MODES.find((m) => m.id === mode)!;
+  return (
+    <div className="space-y-4">
+      <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1" role="tablist" data-testid="chat-modes">
+        {MODES.map((m) => (
+          <button key={m.id} role="tab" aria-selected={m.id === mode} data-testid="chat-mode" data-mode={m.id}
+            onClick={() => { stopVoice(); setParams(m.id === 'free' ? {} : { mode: m.id }, { replace: true }); }}
+            className={`shrink-0 rounded-full px-3.5 py-1.5 text-sm font-medium transition ${m.id === mode ? 'bg-blue-600 text-white dark:bg-blue-500 dark:text-slate-950' : 'bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200'}`}>
+            {m.label}
+          </button>
+        ))}
+      </div>
+      {mode === 'free' ? <FreeChat /> : (
+        <>
+          <PageTitle title={cur.label.replace(/^\S+\s/, '')} subtitle={cur.subtitle} />
+          {mode === 'scene' && <RolePlay />}
+          {mode === 'story' && <StoryBank />}
+          {mode === 'discord' && <DiscordGroup />}
+        </>
+      )}
+    </div>
+  );
+}
+
+function FreeChat() {
   const { state, update, logActivity } = useStore();
   const ai = useAIConfig();
   const q = todaysQuestion(state);
