@@ -24,6 +24,8 @@ import { RecordingList } from '../components/RecordingPlayer';
 import { nextSeed, pickDailyTopic } from '../lib/topics';
 import { ErrorBox, Spinner } from '../components/ui';
 import Icon from '../components/Icon';
+import { HuntChips, HuntResult } from '../components/HuntCards';
+import { useHunt } from '../lib/useHunt';
 
 const MODE_KEY = 'speakup.todayMode';
 const normQ = (q: string) => q.toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim();
@@ -36,6 +38,7 @@ function greeting() {
 export default function Today() {
   const { state, update, addPhrases, logActivity, saveRecordings } = useStore();
   const ai = useAIConfig();
+  const hunt = useHunt();
   const q = todaysQuestion(state);
   const entry = q ? [...state.entries].reverse().find((e) => e.questionId === q.id) : undefined;
 
@@ -168,6 +171,8 @@ export default function Today() {
       }
       const n = addPhrases(up.phrases, q.question);
       logActivity();
+      // Word tracker: did the spoken answer use today's target words? (background; never blocks saving)
+      if (answerFluency || answerClips.length || answerSamples.length) void hunt.run({ ref: `answer:${e.id}`, source: 'daily', question: q.question, transcript: answer.trim() });
       setSavedMsg(n ? `Saved ${n} new phrase${n > 1 ? 's' : ''} to your Phrase Bank.` : 'These phrases are already in your Phrase Bank.');
       setPractice(false);
       setAttempt('');
@@ -194,6 +199,7 @@ export default function Today() {
           .then((failed) => failed && setRecNote('🎙️ Recording not saved. Your try and scores are saved.'));
       }
       logActivity();
+      if (attemptFluency || attemptClips.length || attemptSamples.length) void hunt.run({ ref: `retry:${entry.id}`, source: 'retry', question: entry.question, transcript: attempt.trim() });
       setPractice(false);
     } catch (e) {
       setRetryError(errorText(e));
@@ -248,6 +254,7 @@ export default function Today() {
                   </div>
                 </div>
               )}
+              <HuntChips question={q.question} />
               <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1">
                 <button className="btn-soft !py-1.5 text-sm" onClick={() => setShowSuggested((v) => !v)} disabled={!ai.hasKey && !q.suggestions?.length} aria-expanded={showSuggested}>
                   💡 {showSuggested ? 'Hide the suggested answer' : 'Show a suggested answer'}
@@ -295,6 +302,7 @@ export default function Today() {
             </div>
           )}
           {savedMsg && <p className="text-sm text-emerald-600 dark:text-emerald-300">✅ {savedMsg}</p>}
+          {entry && <HuntResult refId={`answer:${entry.id}`} busy={hunt.busyRef} error={hunt.error} />}
           {entry && <RecordingList recs={state.recordings.filter((r) => r.answerId === entry.id && r.kind === 'answer')} />}
           {recNote && <p className="muted text-xs" data-testid="rec-note">{recNote}</p>}
           <ErrorBox error={upError} onRetry={doUpgrade} />
@@ -332,6 +340,7 @@ export default function Today() {
               </>
             )}
             {entry.retry && !practice && <RetryCard entry={entry} />}
+            {entry.retry && !practice && <HuntResult refId={`retry:${entry.id}`} busy={hunt.busyRef} error={hunt.error} />}
             {!practice && <RecordingList recs={state.recordings.filter((r) => r.answerId === entry.id && r.kind === 'retry')} title="🎧 Your tries" />}
             {entry.retry && !practice && (entry.retry.pronunciation || attemptClips.length > 0) && (
               <PronunciationCard clips={attempt.trim() === entry.retry.attempt?.trim() ? attemptClips : []} transcript={entry.retry.attempt || attempt} result={entry.retry.pronunciation} onResult={onRetryPron} context="saying their answer again in their own words" title="🗣️ Pronunciation (your try)" />

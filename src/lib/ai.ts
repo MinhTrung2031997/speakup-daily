@@ -1,6 +1,7 @@
 import { generateJSON, type GeminiConfig, type GeminiTurn } from './gemini';
 import * as LP from './learnPrompts';
 import * as SB from './sayItBetter';
+import * as WH from './wordHunt';
 import type { UsageLevel } from './learnPrompts';
 import type { BuilderLength, BuilderLevel, BuilderPart, ChatFeedback, ChatMessage, Correction, ListenDrill, ListenLine, PhraseItem, Profile, PronunciationResult, PronWord, QuestionType, RetellResult, RetryResult, Upgrade } from './types';
 
@@ -766,4 +767,30 @@ export async function gradeSayIt(cfg: GeminiConfig, meaning: string, target: str
     feedback: str(r.feedback),
     betterSentence: str(r.betterSentence),
   };
+}
+
+// ---------- Word tracker (EL's prompts, see wordHunt.ts) ----------
+const HUNT_LEVELS = ['natural', 'forced', 'misused', 'absent'] as const;
+
+/** Grade how a spoken answer used each target word. Code guards: a word that is not really in the transcript is "absent". */
+export async function wordHunt(cfg: GeminiConfig, question: string, transcript: string, targets: { phrase: string; meaning: string }[]): Promise<WH.HuntResult[]> {
+  const text = transcript.trim().slice(0, 4000);
+  const r = await generateJSON<Record<string, unknown>>(cfg, 'wordhunt', TONE, [{ role: 'user', text: WH.wordHuntPrompt(question, text, targets) }], 0.2);
+  const res = arr<Record<string, unknown>>(r.results);
+  return targets.map((t, i) => {
+    const x = res.find((y) => str(y.word).toLowerCase() === t.phrase.toLowerCase()) || res[i] || {};
+    let lv = str(x.level).toLowerCase() as WH.HuntLevel;
+    if (!(HUNT_LEVELS as readonly string[]).includes(lv)) lv = 'absent';
+    // Never trust "natural/forced/misused" if the phrase is not in the transcript at all.
+    if (lv !== 'absent' && !LP.phraseInText(t.phrase, text, 1)) lv = 'absent';
+    const evidence = lv === 'absent' ? '' : str(x.evidence).slice(0, 300);
+    return { word: t.phrase, level: lv, evidence, note: str(x.note).slice(0, 300), better: lv === 'forced' || lv === 'misused' ? str(x.better).slice(0, 300) : '' };
+  });
+}
+
+export async function overusedSwaps(cfg: GeminiConfig, word: string, sentences: string[]): Promise<WH.Swap['swaps']> {
+  const r = await generateJSON<Record<string, unknown>>(cfg, 'overusedswaps', TONE, [{ role: 'user', text: WH.overusedSwapsPrompt(word, sentences) }], 0.5);
+  const swaps = arr<Record<string, unknown>>(r.swaps).map((s) => ({ phrase: str(s.phrase), example: str(s.example) })).filter((s) => s.phrase).slice(0, 3);
+  if (!swaps.length) throw new Error('No swaps came back. Please try again.');
+  return swaps;
 }

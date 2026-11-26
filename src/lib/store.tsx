@@ -27,6 +27,7 @@ export function defaultState(): AppState {
     listens: [],
     wordSessions: [],
     saySessions: [],
+    hunt: { days: [], uses: [], swaps: [] },
     sounds: [],
     recordings: [],
     shadowPron: [],
@@ -53,6 +54,7 @@ export function normalizeState(raw: unknown): AppState {
     listens: Array.isArray(r.listens) ? r.listens : [],
     wordSessions: Array.isArray(r.wordSessions) ? r.wordSessions : [],
     saySessions: Array.isArray(r.saySessions) ? r.saySessions : [],
+    hunt: { days: Array.isArray(r.hunt?.days) ? r.hunt!.days : [], uses: Array.isArray(r.hunt?.uses) ? r.hunt!.uses : [], swaps: Array.isArray(r.hunt?.swaps) ? r.hunt!.swaps : [] },
     sounds: Array.isArray(r.sounds) ? r.sounds : [],
     recordings: Array.isArray(r.recordings) ? r.recordings : [],
     shadowPron: Array.isArray(r.shadowPron) ? r.shadowPron : [],
@@ -177,6 +179,9 @@ export function StoreProvider({ userId, email, children }: { userId: string; ema
     setDemoMode(state.settings.demo);
     if (state !== baseRef.current) flush();
   }, [state, flush]);
+
+  // Lets tests (and anything else) see whether a cloud save is still running.
+  useEffect(() => { document.documentElement.dataset.saving = saving ? '1' : '0'; }, [saving]);
 
   // Warn before closing the tab while a save is in progress.
   useEffect(() => {

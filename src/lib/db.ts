@@ -19,7 +19,7 @@ import { getDemoMode } from './gemini';
 import type {
   ReplayInfo,
   AppState, BuilderInfo, ListenSession, ChatFeedback, ChatMessage, ChatSession, DailyQuestion, Entry, FluencyStats, Phrase, Profile,
-  PronunciationResult, RecordingItem, RecordingKind, RetryResult, ReviewLog, Settings, ShadowAttemptInput, SoundItem, SuggestedAnswer, Topic, Upgrade, WordSession, SaySession,
+  PronunciationResult, RecordingItem, RecordingKind, RetryResult, ReviewLog, Settings, ShadowAttemptInput, SoundItem, SuggestedAnswer, Topic, Upgrade, WordSession, SaySession, HuntDay, HuntUse, OverusedSwap,
 } from './types';
 
 export const PRESET_TOPICS: Topic[] = TOPIC_CATALOGUE.map((t) => ({ id: t.id, name: t.name, emoji: t.emoji, active: true }));
@@ -228,6 +228,16 @@ function sayFromRow(r: SayRowIn): SaySession {
   };
 }
 
+const HUNT_LEVELS = ['natural', 'forced', 'misused', 'absent'];
+const HUNT_SOURCES = ['daily', 'retry', 'replay', 'builder', 'say', 'words'];
+const huntDayRow = (userId: string, d: HuntDay) => ({ id: d.id, user_id: userId, hunt_date: date(d.date), targets: j(d.targets), created_at: ts(d.createdAt) });
+const huntUseRow = (userId: string, u: HuntUse) => ({
+  id: u.id, user_id: userId, hunt_date: date(u.date), phrase: u.phrase.slice(0, 200), answer_ref: u.ref.slice(0, 100),
+  source: HUNT_SOURCES.includes(u.source) ? u.source : 'daily', level: HUNT_LEVELS.includes(u.level) ? u.level : 'absent',
+  evidence: (u.evidence || '').slice(0, 1000), note: (u.note || '').slice(0, 500), better: (u.better || '').slice(0, 1000), question: (u.question || '').slice(0, 1000), created_at: ts(u.createdAt),
+});
+const swapRow = (userId: string, w: OverusedSwap) => ({ user_id: userId, word: w.word.slice(0, 60), swaps: j(w.swaps), created_at: ts(w.createdAt) });
+
 function listenRow(userId: string, l: ListenSession) {
   return {
     id: l.id,
@@ -387,6 +397,10 @@ export async function loadState(userId: string): Promise<AppState> {
   ]);
   const wordRows = await fetchAll<WordSessionRowIn>('word_sessions', 'id,session_date,topic,words,progress,completed_at,created_at', 'created_at').catch(() => []);
   const sayRows = await fetchAll<SayRowIn>('say_sessions', 'id,session_date,input,input_lang,result,picked,shadowed,grade,created_at', 'created_at').catch(() => []);
+  const huntDays = await fetchAll<{ id: string; hunt_date: string; targets: Json; created_at: string }>('word_hunt_days', 'id,hunt_date,targets,created_at', 'created_at').catch(() => []);
+  const huntUses = await fetchAll<{ id: string; hunt_date: string; phrase: string; answer_ref: string; source: string; level: string; evidence: string; note: string; better: string; question: string; created_at: string }>(
+    'word_hunt_uses', 'id,hunt_date,phrase,answer_ref,source,level,evidence,note,better,question,created_at', 'created_at').catch(() => []);
+  const huntSwaps = await fetchAll<{ word: string; swaps: Json; created_at: string }>('overused_swaps', 'word,swaps,created_at', 'created_at').catch(() => []);
   const versionRows = await fetchAll<SuggestedRow>('suggested_answers', 'id,question_id,data,created_at', 'created_at').catch(() => null);
   const versionsByQ = new Map<string, SuggestedAnswer[]>();
   for (const r of versionRows || []) {
@@ -488,6 +502,11 @@ export async function loadState(userId: string): Promise<AppState> {
     })),
     wordSessions: wordRows.map(wordSessionFromRow),
     saySessions: sayRows.map(sayFromRow),
+    hunt: {
+      days: huntDays.map((d) => ({ id: d.id, date: d.hunt_date, targets: (Array.isArray(d.targets) ? d.targets : []) as unknown as HuntDay['targets'], createdAt: ms(d.created_at) })),
+      uses: huntUses.map((u) => ({ id: u.id, date: u.hunt_date, phrase: u.phrase, ref: u.answer_ref, source: u.source as HuntUse['source'], level: u.level as HuntUse['level'], evidence: u.evidence, note: u.note, better: u.better, question: u.question, createdAt: ms(u.created_at) })),
+      swaps: huntSwaps.map((w) => ({ word: w.word, swaps: (Array.isArray(w.swaps) ? w.swaps : []) as unknown as OverusedSwap['swaps'], createdAt: ms(w.created_at) })),
+    },
     // "Sounds to fix", newest first like phrases.
     sounds: sounds.reverse().map((x) => ({
       id: x.id, word: x.word, note: x.note, ipa: x.ipa, issue: x.issue, heard: x.heard, timesSeen: x.times_seen,
@@ -607,6 +626,27 @@ export async function syncChanges(userId: string, prev: AppState, next: AppState
     const old = byId(prev.wordSessions || []);
     const changed = (next.wordSessions || []).filter((w) => old.get(w.id) !== w && isUuid(w.id));
     for (const c of chunks(changed)) check(await supabase.from('word_sessions').upsert(c.map((w) => wordSessionRow(userId, w)), { onConflict: 'user_id,session_date' }), 'Save words session');
+  }
+
+  // Word tracker (days: one per date; uses: one per answer+phrase; swaps: one per word)
+  {
+    const pn = prev.hunt || { days: [], uses: [], swaps: [] };
+    const nn = next.hunt || { days: [], uses: [], swaps: [] };
+    if (pn.days !== nn.days) {
+      const old = byId(pn.days);
+      const changed = nn.days.filter((d) => old.get(d.id) !== d && isUuid(d.id));
+      for (const c of chunks(changed)) check(await supabase.from('word_hunt_days').upsert(c.map((d) => huntDayRow(userId, d)), { onConflict: 'user_id,hunt_date' }), 'Save word-hunt day');
+    }
+    if (pn.uses !== nn.uses) {
+      const old = byId(pn.uses);
+      const changed = nn.uses.filter((u) => old.get(u.id) !== u && isUuid(u.id));
+      for (const c of chunks(changed)) check(await supabase.from('word_hunt_uses').upsert(c.map((u) => huntUseRow(userId, u)), { onConflict: 'user_id,answer_ref,phrase' }), 'Save word-hunt uses');
+    }
+    if (pn.swaps !== nn.swaps) {
+      const old = new Map(pn.swaps.map((w) => [w.word, w]));
+      const changed = nn.swaps.filter((w) => old.get(w.word) !== w);
+      for (const c of chunks(changed)) check(await supabase.from('overused_swaps').upsert(c.map((w) => swapRow(userId, w)), { onConflict: 'user_id,word' }), 'Save swaps');
+    }
   }
 
   // "Say it better" sessions (history can be deleted)
@@ -908,7 +948,7 @@ export async function importLegacy(userId: string, legacy: AppState, current: Ap
 // ---------------------------------------------------------------------------
 export async function resetAll(userId: string): Promise<void> {
   // Children cascade: answers -> fluency_stats, phrases -> phrase_reviews, chat_sessions -> chat_messages.
-  for (const t of ['recordings', 'shadowing_attempts', 'fluency_stats', 'answers', 'phrases', 'chat_sessions', 'daily_questions', 'daily_activity', 'listening_sessions', 'pronunciation_items', 'word_sessions', 'say_sessions'] as const) {
+  for (const t of ['recordings', 'shadowing_attempts', 'fluency_stats', 'answers', 'phrases', 'chat_sessions', 'daily_questions', 'daily_activity', 'listening_sessions', 'pronunciation_items', 'word_sessions', 'say_sessions', 'word_hunt_days', 'word_hunt_uses', 'overused_swaps'] as const) {
     check(await supabase.from(t).delete().eq('user_id', userId), `Delete ${t}`);
   }
   check(await supabase.from('topics').delete().eq('user_id', userId).eq('is_custom', true), 'Delete custom topics');

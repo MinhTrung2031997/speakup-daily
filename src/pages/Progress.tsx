@@ -4,6 +4,7 @@ import { addDays, lastNDays, todayStr } from '../lib/date';
 import { activeDates, dictationByDay, fluencyByDay, fluencyRecords, listeningStats, phraseStats, pronunciationStats, streak } from '../lib/stats';
 import { MASTERED_STAGE } from '../lib/srs';
 import BarChart from '../components/BarChart';
+import WordTracker from '../components/WordTracker';
 import { PageTitle } from '../components/ui';
 
 function Stat({ icon, label, value, sub }: { icon: string; label: string; value: string | number; sub?: string }) {
@@ -61,6 +62,8 @@ export default function Progress() {
         <Stat icon="⏱️" label="Time spoken" value={fmtMin(totalSec)} sub="using the mic" />
         <Stat icon="🏆" label="Phrases learned" value={ps.learned} sub={`${ps.mastered} mastered · ${ps.total} saved`} />
       </div>
+
+      <WordTracker />
 
       <div className="grid gap-4 md:grid-cols-2">
         <div className="card">

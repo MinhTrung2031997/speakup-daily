@@ -1,4 +1,5 @@
 import type { SayGrade, SayItBetter } from './sayItBetter';
+import type { HuntLevel } from './wordHunt';
 
 export interface Profile {
   name: string;
@@ -239,6 +240,8 @@ export interface AppState {
   wordSessions: WordSession[];
   /** "Say it better" sessions, oldest first. */
   saySessions: SaySession[];
+  /** Word tracker: daily target words, how answers used them, cached swaps for overused words. */
+  hunt: HuntState;
   sounds: SoundItem[];
   /** Saved mic recordings (recordings table + private bucket), oldest first. Kept permanently. */
   recordings: RecordingItem[];
@@ -436,3 +439,25 @@ export interface SaySession {
   grade?: SayGrade & { transcript: string; voiced: boolean; gradedAt: number };
   createdAt: number;
 }
+
+export interface HuntTarget { phrase: string; meaning: string }
+/** The (up to 3) words to try to use on one day. */
+export interface HuntDay { id: string; date: string; targets: HuntTarget[]; createdAt: number }
+export type HuntSource = 'daily' | 'retry' | 'replay' | 'builder' | 'say' | 'words';
+/** How one spoken answer used one target word. Only 'natural' counts toward "active" (3 different answers). */
+export interface HuntUse {
+  id: string;
+  date: string;
+  phrase: string;
+  /** Identifies the answer (e.g. answer:<entryId>, retry:<entryId>, say:<sessionId>), so one answer counts once. */
+  ref: string;
+  source: HuntSource;
+  level: HuntLevel;
+  evidence: string;
+  note: string;
+  better: string;
+  question: string;
+  createdAt: number;
+}
+export interface OverusedSwap { word: string; swaps: { phrase: string; example: string }[]; createdAt: number }
+export interface HuntState { days: HuntDay[]; uses: HuntUse[]; swaps: OverusedSwap[] }

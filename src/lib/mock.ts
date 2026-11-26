@@ -206,6 +206,25 @@ export function mockResponse(task: string, turns: GeminiTurn[]): unknown {
         betterSentence: "I've been pretty wiped out lately because I'm working too much.",
       };
     }
+    case 'wordhunt': {
+      const said = (last.match(/"""([\s\S]*?)"""/)?.[1] || '').toLowerCase();
+      const list = (() => { try { return JSON.parse(last.match(/Target phrases[^\n]*?: (\[.*\])/)?.[1] || '[]') as { phrase: string }[]; } catch { return []; } })();
+      return {
+        results: list.map((t) => {
+          const has = said.includes(t.phrase.toLowerCase());
+          const clause = has ? (said.split(/[.!?]/).find((c) => c.includes(t.phrase.toLowerCase())) || '').trim() : '';
+          return { word: t.phrase, level: has ? 'natural' : 'absent', evidence: clause, note: has ? 'It carries your point naturally.' : '', better: '' };
+        }),
+      };
+    }
+    case 'overusedswaps': {
+      const w = (last.match(/overuses the word "([^"]+)"/)?.[1] || 'very');
+      return { word: w, swaps: [
+        { phrase: 'really', example: `I'm really tired today.` },
+        { phrase: 'super', example: `It was super busy at work.` },
+        { phrase: 'pretty', example: `It was pretty good, to be honest.` },
+      ] };
+    }
     case 'ping':
       return { message: 'Hello! Demo mode is working 🎉' };
     default:

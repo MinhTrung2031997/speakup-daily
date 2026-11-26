@@ -155,9 +155,9 @@ try {
   await page.goto(`${BASE}/`, { waitUntil: 'networkidle0' });
   await waitText('Idea starters', 20000);
   await page.evaluate(() => window.__speechPlans.push([[600, 3000, 'uhm I think I think Notion is the app I use every day'], [2600, 3000, 'because it help me remember like many task']]));
-  await page.click('button[title="Answer by voice"]');
+  await page.evaluate(() => { const b = document.querySelector('button[title="Answer by voice"]'); b.scrollIntoView({ block: 'center' }); b.click(); });
   await sleep(10000);
-  await page.click('button[title="Stop recording"]');
+  await page.evaluate(() => document.querySelector('button[title="Stop recording"]').click());
   await sleep(500);
   await clickText('Upgrade my answer');
   await waitText('What I said');

@@ -8,6 +8,8 @@ import { loadBuilderPrefs, saveBuilderPrefs } from '../lib/builderPrefs';
 import { errorText } from '../lib/gemini';
 import { todayStr, uid } from '../lib/date';
 import { analyzeFluency, withAudioFluency } from '../lib/fluency';
+import { HuntResult } from './HuntCards';
+import { useHunt } from '../lib/useHunt';
 import type { AudioClip } from '../lib/audio';
 import PronunciationCard from './PronunciationCard';
 import type { SpeechSample } from '../lib/speech';
@@ -53,6 +55,7 @@ export default function AnswerBuilder() {
   const { state, update, addPhrases, logActivity, saveRecordings } = useStore();
   const [recNote, setRecNote] = useState('');
   const ai = useAIConfig();
+  const hunt = useHunt();
   const topics = useMemo(() => {
     const active = state.topics.filter((t) => t.active);
     return active.length ? active : state.topics;
@@ -257,6 +260,7 @@ export default function AnswerBuilder() {
           .then((failed) => failed && setRecNote('🎙️ Recording not saved. Your try and scores are saved.'));
       }
       logActivity();
+      if (samples.length || clips.length) void hunt.run({ ref: `builder:${entry.id}`, source: 'builder', question: entry.question, transcript: attempt.trim() });
       setPractice(false);
     } catch (e) {
       setScoreError(errorText(e));
@@ -444,6 +448,7 @@ export default function AnswerBuilder() {
                 <>
                   {entry.fluency && <FluencyCard stats={entry.fluency} title="📈 Fluency (your try)" />}
                   <RetryCard entry={entry} />
+                  <HuntResult refId={`builder:${entry.id}`} busy={hunt.busyRef} error={hunt.error} />
                   <RecordingList recs={state.recordings.filter((r) => r.answerId === entry.id)} title="🎧 Your tries" />
                   {recNote && <p className="muted text-xs" data-testid="rec-note">{recNote}</p>}
                   {(entry.pronunciation || clips.length > 0) && (

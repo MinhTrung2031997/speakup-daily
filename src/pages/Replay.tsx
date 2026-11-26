@@ -11,6 +11,8 @@ import { compareAnswers, inferQuestionType, upgradeAnswer } from '../lib/ai';
 import { errorText } from '../lib/gemini';
 import { prettyDate, todayStr, uid, addDays } from '../lib/date';
 import { analyzeFluency, withAudioFluency } from '../lib/fluency';
+import { HuntResult } from '../components/HuntCards';
+import { useHunt } from '../lib/useHunt';
 import { filterWordsUsed } from '../lib/learnPrompts';
 import { groupTopics, topicIdOf } from '../lib/topics';
 import type { DailyQuestion, Entry, PronunciationResult } from '../lib/types';
@@ -107,6 +109,7 @@ export default function Replay() {
 function ReplayRound({ q }: { q: DailyQuestion }) {
   const { state, update, addPhrases, logActivity, saveRecordings, reviewPhrase } = useStore();
   const ai = useAIConfig();
+  const hunt = useHunt();
   const prev = useMemo(() => answersFor(state.entries, q), [state.entries, q]);
   const [targets] = useState(() => practicePool(state.phrases).slice(0, 2).map((p) => p.phrase));
   const [answer, setAnswer] = useState('');
@@ -154,6 +157,7 @@ function ReplayRound({ q }: { q: DailyQuestion }) {
       }
       addPhrases(up.phrases, q.question);
       logActivity();
+      if (voiced) void hunt.run({ ref: `replay:${e.id}`, source: 'replay', question: q.question, transcript: answer.trim() });
     } catch (err) { setError(errorText(err)); } finally { setBusy(false); }
   };
 
@@ -194,6 +198,7 @@ function ReplayRound({ q }: { q: DailyQuestion }) {
         <>
           <ThenVsNow first={first} latest={latest} recsFor={recsFor} />
           {recNote && <p className="muted text-xs" data-testid="rec-note">{recNote}</p>}
+          <HuntResult refId={`replay:${latest.id}`} busy={hunt.busyRef} error={hunt.error} />
           <UpgradeResult entry={latest} />
           <div className="flex flex-wrap gap-2">
             <Link to={`/history?tab=daily`} className="btn-soft">See all attempts in History</Link>

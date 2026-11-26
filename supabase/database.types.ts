@@ -758,6 +758,24 @@ export type Database = {
         Update: { created_at?: string; data?: Json; id?: string; question_id?: string; updated_at?: string; user_id?: string }
         Relationships: []
       }
+      word_hunt_days: {
+        Row: { created_at: string; hunt_date: string; id: string; targets: Json; user_id: string }
+        Insert: { created_at?: string; hunt_date: string; id?: string; targets?: Json; user_id?: string }
+        Update: { created_at?: string; hunt_date?: string; id?: string; targets?: Json; user_id?: string }
+        Relationships: []
+      }
+      word_hunt_uses: {
+        Row: { answer_ref: string; better: string; created_at: string; evidence: string; hunt_date: string; id: string; level: string; note: string; phrase: string; question: string; source: string; user_id: string }
+        Insert: { answer_ref: string; better?: string; created_at?: string; evidence?: string; hunt_date: string; id?: string; level: string; note?: string; phrase: string; question?: string; source?: string; user_id?: string }
+        Update: { answer_ref?: string; better?: string; created_at?: string; evidence?: string; hunt_date?: string; id?: string; level?: string; note?: string; phrase?: string; question?: string; source?: string; user_id?: string }
+        Relationships: []
+      }
+      overused_swaps: {
+        Row: { created_at: string; swaps: Json; user_id: string; word: string }
+        Insert: { created_at?: string; swaps?: Json; user_id?: string; word: string }
+        Update: { created_at?: string; swaps?: Json; user_id?: string; word?: string }
+        Relationships: []
+      }
       say_sessions: {
         Row: { created_at: string; grade: Json | null; id: string; input: string; input_lang: string; picked: number | null; result: Json; session_date: string; shadowed: boolean; updated_at: string; user_id: string }
         Insert: { created_at?: string; grade?: Json | null; id?: string; input: string; input_lang?: string; picked?: number | null; result: Json; session_date?: string; shadowed?: boolean; updated_at?: string; user_id?: string }

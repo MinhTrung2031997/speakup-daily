@@ -21,6 +21,8 @@ import { askConfirm } from '../components/ConfirmDialog';
 import { LEVEL_UI, LevelChip } from '../components/LearnDrills';
 import { Empty, ErrorBox, PageTitle, Spinner } from '../components/ui';
 import Icon from '../components/Icon';
+import { HuntResult } from '../components/HuntCards';
+import { useHunt } from '../lib/useHunt';
 
 const STYLE_UI: Record<SayVersion['style'], { icon: string; label: string; hint: string }> = {
   casual: { icon: '🎮', label: 'Casual', hint: 'friends, Discord' },
@@ -202,6 +204,7 @@ function Flow({ session, patch }: { session: SaySession; patch: (p: Partial<SayS
 function OwnWay({ session, version, patch }: { session: SaySession; version: SayVersion; patch: (p: Partial<SaySession>) => void }) {
   const { update, addPhrases, logActivity } = useStore();
   const ai = useAIConfig();
+  const hunt = useHunt();
   const [text, setText] = useState('');
   const [voiced, setVoiced] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -229,6 +232,7 @@ function OwnWay({ session, version, patch }: { session: SaySession; version: Say
       patch({ grade: { ...r, transcript: said, voiced, gradedAt: Date.now() } });
       setRetry(false);
       logActivity();
+      if (voiced) void hunt.run({ ref: `say:${session.id}`, source: 'say', question: `Say this idea in English: ${session.result.understood}`, transcript: said });
     } catch (e) { setError(errorText(e)); } finally { setBusy(false); }
   };
 
@@ -249,6 +253,7 @@ function OwnWay({ session, version, patch }: { session: SaySession; version: Say
             <button className="btn-ghost" onClick={() => { setRetry(true); setText(''); setVoiced(false); }} data-testid="say-retry"><Icon name="refresh" className="h-4 w-4" /> Try again</button>
             <Link to="/phrases" className="btn-soft">Phrase Bank</Link>
           </div>
+          <div className="mt-3"><HuntResult refId={`say:${session.id}`} busy={hunt.busyRef} error={hunt.error} /></div>
         </div>
       ) : (
         <>
