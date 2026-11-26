@@ -108,7 +108,7 @@ function useLazyMeanings() {
   }, [state.phrases, ai, update]);
 }
 
-const ORIGIN: Record<NonNullable<Phrase['origin']>, string> = { answer: '✨ Upgrade', suggested: '💡 Suggested', builder: '🧱 Builder', listen: '🎧 Listen', manual: '✍️ Added by you', words: '📚 Words' };
+const ORIGIN: Record<NonNullable<Phrase['origin']>, string> = { answer: '✨ Upgrade', suggested: '💡 Suggested', builder: '🧱 Builder', listen: '🎧 Listen', manual: '✍️ Added by you', words: '📚 Words', say: '🗣️ Say it better' };
 
 function AddPhrase() {
   const { addPhrases } = useStore();

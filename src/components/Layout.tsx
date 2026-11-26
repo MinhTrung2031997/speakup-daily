@@ -10,6 +10,7 @@ const NAV = [
   { to: '/chat', label: 'Chat', icon: 'chat' },
   { to: '/phrases', label: 'Phrases', icon: 'cards' },
   { to: '/words', label: 'Words', icon: 'book' },
+  { to: '/say', label: 'Say it', icon: 'translate' },
   { to: '/history', label: 'History', icon: 'history' },
   { to: '/progress', label: 'Progress', icon: 'chart' },
 ];

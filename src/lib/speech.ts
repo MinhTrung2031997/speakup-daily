@@ -62,13 +62,15 @@ export interface RecognitionHandlers {
   onSample?: (sample: SpeechSample) => void;
 }
 
-export function useSpeechRecognition({ onFinal, onSession, onSample }: RecognitionHandlers) {
+export function useSpeechRecognition({ onFinal, onSession, onSample }: RecognitionHandlers, lang = 'en-US') {
   const [listening, setListening] = useState(false);
   const [interim, setInterim] = useState('');
   const [error, setError] = useState('');
   const recRef = useRef<SpeechRecognitionLike | null>(null);
   const wantRef = useRef(false);
   const startedAt = useRef(0);
+  const langRef = useRef(lang);
+  langRef.current = lang;
   const handlers = useRef({ onFinal, onSession, onSample });
   handlers.current = { onFinal, onSession, onSample };
   const timing = useRef({ first: 0, last: 0, pauses: [] as number[], finals: [] as string[] });
@@ -101,7 +103,7 @@ export function useSpeechRecognition({ onFinal, onSession, onSample }: Recogniti
     }
     setError('');
     const rec = new SR();
-    rec.lang = 'en-US';
+    rec.lang = langRef.current;
     rec.continuous = true;
     rec.interimResults = true;
     rec.onresult = (e) => {

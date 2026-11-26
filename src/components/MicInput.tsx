@@ -17,10 +17,12 @@ interface Props {
   onSpeech?: (sample: SpeechSample) => void;
   /** Also keep the recording (MediaRecorder) of each mic session, e.g. for the pronunciation check. */
   onAudio?: (clip: AudioClip) => void;
+  /** Speech-recognition language (default en-US; vi-VN for Vietnamese input). */
+  lang?: string;
 }
 
 /** Text box with a mic button that appends speech-to-text into the box. */
-export default function MicInput({ value, onChange, placeholder, rows = 4, disabled, onSend, sendDisabled, onSpeech, onAudio }: Props) {
+export default function MicInput({ value, onChange, placeholder, rows = 4, disabled, onSend, sendDisabled, onSpeech, onAudio, lang }: Props) {
   const { addSpeaking } = useStore();
   const valueRef = useRef(value);
   valueRef.current = value;
@@ -34,7 +36,7 @@ export default function MicInput({ value, onChange, placeholder, rows = 4, disab
     },
     onSession: (sec) => addSpeaking(sec),
     onSample: (s) => s.transcript && onSpeech?.(s),
-  });
+  }, lang);
 
   // Record audio alongside speech recognition while the mic is on.
   const rec = useClipRecorder(!!onAudio);

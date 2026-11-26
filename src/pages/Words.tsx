@@ -10,8 +10,8 @@ import { errorText, generateJSON, getDemoMode } from '../lib/gemini';
 import { scheduleLevel } from '../lib/srs';
 import { todayStr, uid } from '../lib/date';
 import { cleanPhrase } from '../lib/diff';
-import { preferredAccent } from '../lib/speech';
-import { naturalSpeechUrl, speakNatural, stopVoice } from '../lib/tts';
+import { stopVoice } from '../lib/tts';
+import { useVoicePlayer } from '../lib/useVoicePlayer';
 import { catalogueTopic } from '../lib/topics';
 import { dailyTopicSlug, pickDailyWords, pickWordsPrompt, TOPIC_SLUGS, WORD_BANK, type WordEntry } from '../lib/words';
 import type { AppState, WordCard, WordProgress, WordSession } from '../lib/types';
@@ -171,28 +171,7 @@ function Summary({ session }: { session: WordSession }) {
   );
 }
 
-/** Play a list of sentences one after another with the natural voice. */
-function usePlayer() {
-  const { state } = useStore();
-  const [playing, setPlaying] = useState<string | null>(null);
-  const run = useRef(0);
-  const play = async (texts: string[], tag: string) => {
-    const id = ++run.current;
-    stopVoice();
-    if (playing === tag) { setPlaying(null); return; }
-    setPlaying(tag);
-    const accent = preferredAccent();
-    texts.slice(1).forEach((t) => naturalSpeechUrl(t, accent).catch(() => {})); // warm the cache while the first one plays
-    for (const t of texts) {
-      if (run.current !== id) return;
-      const r = await speakNatural(t, { accent, voiceURI: state.settings.voiceURI, rate: state.settings.rate });
-      if (r === 'blocked' || r === 'none') break;
-    }
-    if (run.current === id) setPlaying(null);
-  };
-  useEffect(() => () => { run.current++; stopVoice(); }, []);
-  return { play, playing };
-}
+const usePlayer = useVoicePlayer;
 
 const autoPlayed = new Set<string>();
 

@@ -183,6 +183,29 @@ export function mockResponse(task: string, turns: GeminiTurn[]): unknown {
         modelRetell: "Alex and Sam were talking about working from home. Alex said it saves a ton of time because there's no traffic, but sometimes it gets a bit lonely. Sam prefers the office because chatting with the team keeps him going. In the end, they agreed that a mix of both is probably the sweet spot.",
       };
     }
+    case 'sayitbetter':
+      return {
+        understood: "I've been tired lately, probably because I work too much.",
+        literalTrap: 'Recently I am a little tired, maybe because I work many.',
+        versions: [
+          { style: 'casual', english: "I've been pretty wiped out lately. I think I'm just working too much.", keyPhrase: 'wiped out', meaning: 'Very tired.', whyNatural: 'Friends say "wiped out" or "worn out" when they are tired.' },
+          { style: 'neutral', english: "I've been feeling tired lately, probably because I've been working too much.", keyPhrase: "I've been feeling tired", meaning: 'I have felt tired for some time.', whyNatural: '"Lately" goes with the present perfect, not the simple present.' },
+          { style: 'polished', english: "I've been run down recently, most likely because of my workload.", keyPhrase: 'run down', meaning: 'Tired and a bit unwell from stress.', whyNatural: '"Workload" sounds right in a meeting or an email.' },
+        ],
+        tip: 'Use the present perfect with "lately" or "recently": "I\'ve been tired", not "I am tired lately".',
+      };
+    case 'saygrade': {
+      const said = (last.match(/"""([\s\S]*?)"""/)?.[1] || '').toLowerCase();
+      const key = (last.match(/key phrase: "([^"]+)"/)?.[1] || '').toLowerCase();
+      const words = said.split(/\s+/).filter(Boolean).length;
+      const has = !!key && said.includes(key);
+      const lvl = has ? 'natural' : words >= 4 ? 'understandable' : 'off';
+      return {
+        meaningKept: words >= 4, level: lvl, usedKeyPhrase: has,
+        feedback: lvl === 'natural' ? 'Nice, that sounds natural and keeps your meaning.' : lvl === 'understandable' ? 'Your meaning is clear. Try using the key phrase from the model.' : "I couldn't hear the idea. Try saying the whole thought again.",
+        betterSentence: "I've been pretty wiped out lately because I'm working too much.",
+      };
+    }
     case 'ping':
       return { message: 'Hello! Demo mode is working 🎉' };
     default:

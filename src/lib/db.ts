@@ -19,7 +19,7 @@ import { getDemoMode } from './gemini';
 import type {
   ReplayInfo,
   AppState, BuilderInfo, ListenSession, ChatFeedback, ChatMessage, ChatSession, DailyQuestion, Entry, FluencyStats, Phrase, Profile,
-  PronunciationResult, RecordingItem, RecordingKind, RetryResult, ReviewLog, Settings, ShadowAttemptInput, SoundItem, SuggestedAnswer, Topic, Upgrade, WordSession,
+  PronunciationResult, RecordingItem, RecordingKind, RetryResult, ReviewLog, Settings, ShadowAttemptInput, SoundItem, SuggestedAnswer, Topic, Upgrade, WordSession, SaySession,
 } from './types';
 
 export const PRESET_TOPICS: Topic[] = TOPIC_CATALOGUE.map((t) => ({ id: t.id, name: t.name, emoji: t.emoji, active: true }));
@@ -200,6 +200,34 @@ function wordSessionFromRow(r: WordSessionRowIn): WordSession {
   };
 }
 
+function sayRow(userId: string, x: SaySession) {
+  return {
+    id: x.id,
+    user_id: userId,
+    session_date: date(x.date),
+    input: (x.input || '').slice(0, 1000) || '…',
+    input_lang: x.inputLang === 'en' ? 'en' : 'vi',
+    result: j(x.result),
+    picked: x.picked == null ? null : clamp(Math.round(x.picked), 0, 2),
+    shadowed: !!x.shadowed,
+    grade: x.grade ? j(x.grade) : null,
+    created_at: ts(x.createdAt),
+    updated_at: new Date().toISOString(),
+  };
+}
+
+type SayRowIn = { id: string; session_date: string; input: string; input_lang: string; result: Json; picked: number | null; shadowed: boolean; grade: Json; created_at: string };
+function sayFromRow(r: SayRowIn): SaySession {
+  return {
+    id: r.id, date: r.session_date, input: r.input, inputLang: r.input_lang === 'en' ? 'en' : 'vi',
+    result: r.result as unknown as SaySession['result'],
+    ...(r.picked != null ? { picked: r.picked } : {}),
+    ...(r.shadowed ? { shadowed: true } : {}),
+    ...(r.grade ? { grade: r.grade as unknown as SaySession['grade'] } : {}),
+    createdAt: ms(r.created_at),
+  };
+}
+
 function listenRow(userId: string, l: ListenSession) {
   return {
     id: l.id,
@@ -358,6 +386,7 @@ export async function loadState(userId: string): Promise<AppState> {
     fetchAll<RecordingRow>('recordings', RECORDING_COLS, 'created_at').catch(() => []),
   ]);
   const wordRows = await fetchAll<WordSessionRowIn>('word_sessions', 'id,session_date,topic,words,progress,completed_at,created_at', 'created_at').catch(() => []);
+  const sayRows = await fetchAll<SayRowIn>('say_sessions', 'id,session_date,input,input_lang,result,picked,shadowed,grade,created_at', 'created_at').catch(() => []);
   const versionRows = await fetchAll<SuggestedRow>('suggested_answers', 'id,question_id,data,created_at', 'created_at').catch(() => null);
   const versionsByQ = new Map<string, SuggestedAnswer[]>();
   for (const r of versionRows || []) {
@@ -458,6 +487,7 @@ export async function loadState(userId: string): Promise<AppState> {
       createdAt: ms(l.created_at),
     })),
     wordSessions: wordRows.map(wordSessionFromRow),
+    saySessions: sayRows.map(sayFromRow),
     // "Sounds to fix", newest first like phrases.
     sounds: sounds.reverse().map((x) => ({
       id: x.id, word: x.word, note: x.note, ipa: x.ipa, issue: x.issue, heard: x.heard, timesSeen: x.times_seen,
@@ -577,6 +607,16 @@ export async function syncChanges(userId: string, prev: AppState, next: AppState
     const old = byId(prev.wordSessions || []);
     const changed = (next.wordSessions || []).filter((w) => old.get(w.id) !== w && isUuid(w.id));
     for (const c of chunks(changed)) check(await supabase.from('word_sessions').upsert(c.map((w) => wordSessionRow(userId, w)), { onConflict: 'user_id,session_date' }), 'Save words session');
+  }
+
+  // "Say it better" sessions (history can be deleted)
+  if ((prev.saySessions || []) !== (next.saySessions || [])) {
+    const old = byId(prev.saySessions || []);
+    const changed = (next.saySessions || []).filter((x) => old.get(x.id) !== x && isUuid(x.id));
+    for (const c of chunks(changed)) check(await supabase.from('say_sessions').upsert(c.map((x) => sayRow(userId, x))), 'Save say-it-better session');
+    const ids = new Set((next.saySessions || []).map((x) => x.id));
+    const gone = (prev.saySessions || []).filter((x) => !ids.has(x.id)).map((x) => x.id);
+    for (const c of chunks(gone)) check(await supabase.from('say_sessions').delete().in('id', c), 'Delete say-it-better session');
   }
 
   // Listening sessions
@@ -868,7 +908,7 @@ export async function importLegacy(userId: string, legacy: AppState, current: Ap
 // ---------------------------------------------------------------------------
 export async function resetAll(userId: string): Promise<void> {
   // Children cascade: answers -> fluency_stats, phrases -> phrase_reviews, chat_sessions -> chat_messages.
-  for (const t of ['recordings', 'shadowing_attempts', 'fluency_stats', 'answers', 'phrases', 'chat_sessions', 'daily_questions', 'daily_activity', 'listening_sessions', 'pronunciation_items', 'word_sessions'] as const) {
+  for (const t of ['recordings', 'shadowing_attempts', 'fluency_stats', 'answers', 'phrases', 'chat_sessions', 'daily_questions', 'daily_activity', 'listening_sessions', 'pronunciation_items', 'word_sessions', 'say_sessions'] as const) {
     check(await supabase.from(t).delete().eq('user_id', userId), `Delete ${t}`);
   }
   check(await supabase.from('topics').delete().eq('user_id', userId).eq('is_custom', true), 'Delete custom topics');

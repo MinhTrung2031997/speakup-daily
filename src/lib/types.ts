@@ -1,3 +1,5 @@
+import type { SayGrade, SayItBetter } from './sayItBetter';
+
 export interface Profile {
   name: string;
   job: string;
@@ -174,7 +176,7 @@ export interface SuggestedAnswer {
 
 export type UsageLevel = 'natural' | 'understandable' | 'off';
 export type ReviewDrill = 'use' | 'fill' | 'situation' | 'speed' | 'replay';
-export type PhraseOrigin = 'answer' | 'suggested' | 'builder' | 'listen' | 'manual' | 'words';
+export type PhraseOrigin = 'answer' | 'suggested' | 'builder' | 'listen' | 'manual' | 'words' | 'say';
 
 export interface ReviewLog {
   date: string;
@@ -235,6 +237,8 @@ export interface AppState {
   listens: ListenSession[];
   /** Words session (Word of the day): one per day, newest last. */
   wordSessions: WordSession[];
+  /** "Say it better" sessions, oldest first. */
+  saySessions: SaySession[];
   sounds: SoundItem[];
   /** Saved mic recordings (recordings table + private bucket), oldest first. Kept permanently. */
   recordings: RecordingItem[];
@@ -416,5 +420,19 @@ export interface WordSession {
   current: number;
   items: WordProgress[];
   completedAt?: number;
+  createdAt: number;
+}
+
+/** One "Say it better" session: his Vietnamese thought, the 3 English versions, and what he did with them. */
+export interface SaySession {
+  id: string;
+  date: string;
+  input: string;
+  inputLang: 'vi' | 'en';
+  result: SayItBetter;
+  /** Index (0..2) of the version he picked. */
+  picked?: number;
+  shadowed?: boolean;
+  grade?: SayGrade & { transcript: string; voiced: boolean; gradedAt: number };
   createdAt: number;
 }

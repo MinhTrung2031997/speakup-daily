@@ -1,5 +1,6 @@
 import { generateJSON, type GeminiConfig, type GeminiTurn } from './gemini';
 import * as LP from './learnPrompts';
+import * as SB from './sayItBetter';
 import type { UsageLevel } from './learnPrompts';
 import type { BuilderLength, BuilderLevel, BuilderPart, ChatFeedback, ChatMessage, Correction, ListenDrill, ListenLine, PhraseItem, Profile, PronunciationResult, PronWord, QuestionType, RetellResult, RetryResult, Upgrade } from './types';
 
@@ -728,4 +729,41 @@ JSON shape: {"items": [{"phrase": string, "meaning": string, "example": string}]
     if (p && str(it.meaning)) out[p] = { meaning: str(it.meaning), example: str(it.example) };
   }
   return out;
+}
+
+// ---------- "Say it better" from Vietnamese (EL's prompts, see sayItBetter.ts) ----------
+const STYLES = ['casual', 'neutral', 'polished'] as const;
+
+/** Vietnamese (or mixed) thought -> what he meant, the word-for-word trap, 3 natural English versions, one tip. */
+export async function sayItBetter(cfg: GeminiConfig, input: string, context = ''): Promise<SB.SayItBetter> {
+  const text = input.trim().slice(0, 600);
+  let last = '';
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const r = await generateJSON<Record<string, unknown>>(cfg, 'sayitbetter', TONE, [{ role: 'user', text: SB.sayItBetterPrompt(text, context) }], 0.5);
+    const versions = arr<Record<string, unknown>>(r.versions).map((v, i) => {
+      const english = str(v.english);
+      let keyPhrase = str(v.keyPhrase).replace(/^["“]|["”]$/g, '');
+      // The key phrase must really be inside the sentence (so it can be checked and learned); otherwise fall back to a chunk of it.
+      if (!keyPhrase || !english.toLowerCase().includes(keyPhrase.toLowerCase())) keyPhrase = english.split(/\s+/).slice(0, 4).join(' ').replace(/[.,!?;:]+$/, '');
+      const s = str(v.style) as SB.SayVersion['style'];
+      return { style: (STYLES as readonly string[]).includes(s) ? s : STYLES[i] || 'neutral', english, keyPhrase, meaning: str(v.meaning), whyNatural: str(v.whyNatural) } as SB.SayVersion;
+    }).filter((v) => v.english).slice(0, 3);
+    if (versions.length === 3) {
+      return { understood: str(r.understood), literalTrap: str(r.literalTrap), versions, tip: str(r.tip) };
+    }
+    last = `got ${versions.length} versions`;
+  }
+  throw new Error(`I couldn't write 3 versions (${last}). Please try again.`);
+}
+
+/** Grade his own re-say of the idea on 3 levels. Review dates are set in code (srs.ts), never by the AI. */
+export async function gradeSayIt(cfg: GeminiConfig, meaning: string, target: string, keyPhrase: string, transcript: string): Promise<SB.SayGrade> {
+  const r = await generateJSON<Record<string, unknown>>(cfg, 'saygrade', TONE, [{ role: 'user', text: SB.gradeSayItBetterPrompt(meaning, target, keyPhrase, transcript.trim().slice(0, 600)) }], 0.3);
+  return {
+    meaningKept: r.meaningKept === true || r.meaningKept === 'true',
+    level: level(r.level),
+    usedKeyPhrase: r.usedKeyPhrase === true || r.usedKeyPhrase === 'true',
+    feedback: str(r.feedback),
+    betterSentence: str(r.betterSentence),
+  };
 }
