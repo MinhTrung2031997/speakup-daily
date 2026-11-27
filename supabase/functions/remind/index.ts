@@ -11,7 +11,8 @@
 // generated here on first use and never leaves Supabase.
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import { generateVapid, sendPush, vapidPublicKey, type VapidJwk } from './webpush.ts';
-import { pickReminder, type ReminderKind } from './reminders.ts';
+import type { ReminderKind } from './reminders.ts';
+import { pickReminderFor } from './reminderPick.ts';
 
 const SUBJECT = 'https://speakup-daily-ten.vercel.app';
 const MASTERED_STAGE = 5;
@@ -116,7 +117,7 @@ function trimQ(q: string): string {
 }
 
 function message(kind: ReminderKind, date: string, s: Status) {
-  const m = pickReminder(kind, date, { name: s.name, left: s.left, mins: s.mins, q: trimQ(s.q) || "today's question", reviews: s.reviewsLeft, streak: s.streak });
+  const m = pickReminderFor(kind, date, { name: s.name, left: s.left, mins: s.mins, q: trimQ(s.q) || "today's question", reviews: s.reviewsLeft, streak: s.streak });
   return { title: m.title.replace(/\s{2,}/g, ' '), body: m.body.replace(/""/g, "today's question").replace(/\s{2,}/g, ' ') };
 }
 

@@ -1,6 +1,8 @@
 // Unit checks for Today's plan rules. Run: npx esbuild scripts/test-plan.ts --bundle --platform=node --outfile=.tmp/test-plan.mjs --format=esm && node .tmp/test-plan.mjs
 import { buildPlan, refreshPlan, planStreak, nextReview, weakestArea, missingAnswerReviews, REVIEW_CAP, LIGHT_REVIEWS } from '../src/lib/plan';
 import { defaultState } from '../src/lib/store';
+import { pickReminderFor } from '../src/lib/reminderPick';
+const leftFor = (qDone: boolean, reviews: number) => [qDone ? '' : '1 question', reviews ? `${reviews} reviews` : ''].filter(Boolean).join(' + ');
 import { addDays } from '../src/lib/date';
 import type { AppState, Entry, Phrase } from '../src/lib/types';
 
@@ -106,6 +108,29 @@ const base = (): AppState => ({ ...defaultState(), settings: { ...defaultState()
   s.listens = [];
   s.hunt = { days: [], uses: [], swaps: [] };
   ok('few active words -> Say it better', weakestArea(s, FRI).extra === 'say');
+}
+// 7) reminder text on a day with 0 due reviews: {left} has no reviews, no template mentioning reviews is picked
+{
+  const kinds = ['first', 'evening', 'streakRisk', 'comeback', 'done'] as const;
+  let bad = '';
+  let checked = 0;
+  for (let d = 0; d < 120; d++) {
+    const date = addDays('2026-11-01', d);
+    for (const k of kinds) {
+      const m = pickReminderFor(k, date, { name: 'Trung', left: leftFor(false, 0), mins: 4, q: 'Coffee or tea?', reviews: 0, streak: 5 });
+      checked++;
+      const txt = `${m.title} ${m.body}`;
+      if (/review|\{|\}|\b0\b/i.test(txt)) bad = bad || `${k} ${date}: ${txt}`;
+    }
+  }
+  ok('0 due reviews: no reminder mentions reviews (all kinds, 120 days)', !bad, bad || `${checked} messages`);
+  const withReviews = new Set<string>();
+  for (let d = 0; d < 60; d++) withReviews.add(pickReminderFor('streakRisk', addDays('2026-11-01', d), { left: '1 question + 3 reviews', mins: 7, reviews: 3, streak: 5, q: 'x', name: 'T' }).body);
+  ok('with reviews due, review templates are still used', [...withReviews].some((b) => /review/.test(b)), [...withReviews].join(' | '));
+  const s = base();
+  s.entries = [entry(1, addDays(FRI, -1))];
+  const p = buildPlan(s, FRI);
+  ok('plan with 0 due reviews: left text = "1 question + 1 drill" (no reviews)', !/review/.test(p.leftText) && p.leftText.startsWith('1 question'), p.leftText);
 }
 console.log(fails ? `${fails} FAILED` : 'ALL PASS');
 process.exit(fails ? 1 : 0);

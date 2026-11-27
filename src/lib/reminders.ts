@@ -17,16 +17,16 @@ export const REMINDERS: Record<ReminderKind, { title: string; body: string }[]> 
     { title: 'Practice o\'clock', body: '{mins} minutes today: {left}. Easy win.' },
   ],
   evening: [
-    { title: 'Still time tonight 🌙', body: '{left} left, about {mins} min. Just the question is enough to count.' },
+    { title: 'Still time tonight 🌙', body: '{left} left, about {mins} min. Finish it to keep your streak.' },
     { title: 'Before you call it a day', body: 'Answer "{q}" out loud. Two minutes, tops.' },
-    { title: 'Quick one before bed?', body: "Today's question is still open. Say your answer and you're done." },
+    { title: 'Quick one before bed?', body: "Today's question is still open. Say your answer, then your {reviews} reviews." },
     { title: "Don't leave it hanging", body: '{left} to go. Future you will thank you.' },
-    { title: 'Last call for today', body: 'One spoken answer keeps the habit alive. {mins} min.' },
+    { title: 'Last call for today', body: '{left} keeps the habit alive. About {mins} min.' },
   ],
   streakRisk: [
-    { title: '🔥 {streak}-day streak at risk', body: 'Just answer today\'s question to keep it. ~3 min.' },
-    { title: "Don't break the chain", body: '{streak} days in a row! One answer tonight keeps it going.' },
-    { title: 'Save your streak', body: '{streak} days so far. "{q}": say it and you\'re safe.' },
+    { title: '🔥 {streak}-day streak at risk', body: '{left} keeps it alive. About {mins} min.' },
+    { title: "Don't break the chain", body: '{streak} days in a row! The question plus {reviews} reviews keeps it going.' },
+    { title: 'Save your streak', body: '{streak} days so far. Answer "{q}", do your reviews, and you\'re safe.' },
   ],
   onlyReviews: [
     { title: '{reviews} phrases want to say hi', body: 'Quick review, about {mins} min. Use them out loud and they stick.' },
@@ -60,5 +60,6 @@ export function pickReminder(kind: ReminderKind, seed: string, vars: Record<stri
 
 // Which kind to send (code side):
 // first reminder: missed yesterday ? 'comeback' : (question answered ? 'onlyReviews' : 'first')
+// streak rule (Nov 27): streak day = daily question + all due reviews done. If reviews = 0, code should drop the 'reviews' wording or use {left}.
 // evening nudge (only if daily question not answered): streak >= 3 ? 'streakRisk' : 'evening'
 // 'done' is optional (in-app toast when the plan completes, not a push).

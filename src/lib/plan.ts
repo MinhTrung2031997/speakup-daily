@@ -9,7 +9,8 @@
 // The plan's items are fixed when it is built (once per local day); the done flags are re-derived from saved activity.
 import { addDays, daysBetween, prettyDate, todayStr } from './date';
 import { isDue } from './srs';
-import { pickReminder, type ReminderKind } from './reminders';
+import type { ReminderKind } from './reminders';
+import { pickReminderFor } from './reminderPick';
 import type { AnswerReview, AppState, DailyPlan, Entry, PlanExtra, PlanItem } from './types';
 
 export const REVIEW_CAP = 8;
@@ -236,7 +237,7 @@ export function refreshPlan(s: AppState, p: DailyPlan, today = p.date): DailyPla
 export function planMessage(s: AppState, p: DailyPlan): { title: string; body: string; kind: ReminderKind } {
   const kind: ReminderKind = p.completedAt ? 'done' : p.light ? 'comeback' : p.questionDone ? (p.reviewsLeft > 0 ? 'onlyReviews' : 'first') : 'first';
   const q = (p.question || "today's question").replace(/\s+/g, ' ');
-  const m = pickReminder(kind, p.date, {
+  const m = pickReminderFor(kind, p.date, {
     name: s.profile.name.trim().split(/\s+/)[0] || '', left: p.leftText || 'nothing', mins: Math.max(1, p.leftMins), q: q.length > 70 ? `${q.slice(0, 67)}…` : q,
     reviews: p.reviewsLeft, streak: p.streak,
   });
