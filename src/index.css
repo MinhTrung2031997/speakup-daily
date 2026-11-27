@@ -21,3 +21,9 @@
   .muted { @apply text-sm text-slate-500 dark:text-slate-400; }
   .mark-phrase { @apply rounded bg-amber-100 px-0.5 font-medium text-amber-900 dark:bg-amber-400/20 dark:text-amber-200; }
 }
+
+/* Today's plan celebration */
+@keyframes plan-pop { 0% { transform: translateY(0) scale(0.6); opacity: 0; } 15% { opacity: 1; } 100% { transform: translateY(-140px) rotate(var(--r, 20deg)) scale(1.1); opacity: 0; } }
+.plan-confetti { position: absolute; bottom: 10px; font-size: 1.4rem; animation: plan-pop 1.8s ease-out forwards; pointer-events: none; }
+@keyframes plan-glow { 0%, 100% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0); } 50% { box-shadow: 0 0 0 6px rgba(37, 99, 235, 0.25); } }
+.plan-highlight { animation: plan-glow 1.2s ease-in-out 2; }

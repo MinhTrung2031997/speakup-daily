@@ -6,6 +6,8 @@ import { MASTERED_STAGE } from '../lib/srs';
 import BarChart from '../components/BarChart';
 import WordTracker from '../components/WordTracker';
 import { PageTitle } from '../components/ui';
+import { planStreak, reviewsOn, streakDayOn, questionDoneOn } from '../lib/plan';
+import type { AppState } from '../lib/types';
 
 function Stat({ icon, label, value, sub }: { icon: string; label: string; value: string | number; sub?: string }) {
   return (
@@ -19,7 +21,9 @@ function Stat({ icon, label, value, sub }: { icon: string; label: string; value:
 
 export default function Progress() {
   const { state } = useStore();
-  const st = streak(state);
+  const st0 = streak(state);
+  const ps0 = planStreak(state);
+  const st = { current: ps0.current, best: ps0.best, practicedToday: st0.practicedToday, doneToday: ps0.doneToday };
   const ps = phraseStats(state);
   const totalSec = Object.values(state.speakingLog).reduce((a, b) => a + b, 0);
   const days = lastNDays(14);
@@ -55,13 +59,15 @@ export default function Progress() {
 
   return (
     <div className="space-y-4">
-      <PageTitle title="Progress" subtitle={st.practicedToday ? "You've practised today. Nice! 🎉" : 'Practise today to keep your streak going.'} />
+      <PageTitle title="Progress" subtitle={st.doneToday ? "Today's question and reviews are done. Nice! 🎉" : 'Do the daily question and your due reviews to keep the streak going.'} />
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Stat icon="🔥" label="Day streak" value={st.current} sub={`Best: ${st.best}`} />
+        <Stat icon="🔥" label="Plan streak" value={st.current} sub={`Best: ${st.best} · question + reviews`} />
         <Stat icon="🎙️" label="Answers" value={state.entries.length} sub={`${userMsgs} chat messages`} />
         <Stat icon="⏱️" label="Time spoken" value={fmtMin(totalSec)} sub="using the mic" />
         <Stat icon="🏆" label="Phrases learned" value={ps.learned} sub={`${ps.mastered} mastered · ${ps.total} saved`} />
       </div>
+
+      <ThisWeek state={state} />
 
       <WordTracker />
 
@@ -181,5 +187,56 @@ export default function Progress() {
         </div>
       </div>
     </div>
+  );
+}
+
+/** Monday..Sunday of the current week: plan days, minutes spoken, reviews done, answers that got better. */
+function ThisWeek({ state }: { state: AppState }) {
+  const today = todayStr();
+  const dow = (new Date(`${today}T12:00:00`).getDay() + 6) % 7; // Monday = 0
+  const monday = addDays(today, -dow);
+  const week = Array.from({ length: 7 }, (_, i) => addDays(monday, i));
+  const past = week.filter((d) => d <= today);
+  const minutes = Math.round(past.reduce((a, d) => a + (state.speakingLog[d] || 0), 0) / 60);
+  const phraseReviews = past.reduce((a, d) => a + reviewsOn(state, d), 0);
+  const redos = (state.answerReviews || []).filter((r) => r.lastReviewedOn && r.lastReviewedOn >= monday);
+  const better = redos.filter((r) => r.lastResult === 'better').length;
+  const planDays = past.filter((d) => streakDayOn(state, d)).length;
+  const fullDays = past.filter((d) => !!(state.plans || []).find((p) => p.date === d)?.completedAt).length;
+  const label = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  return (
+    <section className="card space-y-3" data-testid="this-week">
+      <div className="flex flex-wrap items-end justify-between gap-2">
+        <div>
+          <h2 className="h-section">📅 This week</h2>
+          <p className="muted text-xs">A day counts when the daily question and the due reviews are done.</p>
+        </div>
+        <Link to="/#plan" className="btn-ghost !py-1 text-sm">Today's plan</Link>
+      </div>
+      <div className="grid grid-cols-7 gap-1.5 text-center" data-testid="week-days">
+        {week.map((d, i) => {
+          const done = streakDayOn(state, d);
+          const full = !!(state.plans || []).find((p) => p.date === d)?.completedAt;
+          const some = !done && (questionDoneOn(state, d) || reviewsOn(state, d) > 0);
+          const future = d > today;
+          return (
+            <div key={d} data-testid="week-day" data-state={future ? 'future' : done ? 'done' : some ? 'partial' : 'missed'}>
+              <p className="text-[11px] text-slate-500">{label[i]}</p>
+              <div className={`mx-auto mt-1 flex h-9 w-9 items-center justify-center rounded-full text-sm font-semibold ${
+                future ? 'border border-dashed border-slate-300 text-slate-300 dark:border-slate-700' : done ? 'bg-emerald-500 text-white' : some ? 'bg-amber-200 text-amber-900 dark:bg-amber-400/30 dark:text-amber-100' : 'bg-slate-100 text-slate-400 dark:bg-slate-800'
+              } ${d === today ? 'ring-2 ring-blue-500 ring-offset-1 dark:ring-offset-slate-900' : ''}`} title={full ? 'Whole plan done' : done ? 'Question + reviews done' : some ? 'Started' : future ? '' : 'Missed'}>
+                {full ? '★' : done ? '✓' : some ? '•' : ''}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <dl className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
+        <div className="rounded-xl bg-slate-50 p-2.5 dark:bg-slate-800/60"><dt className="text-xs text-slate-500">Streak days</dt><dd className="text-lg font-bold" data-testid="week-plan-days">{planDays}/{past.length}</dd><dd className="text-xs text-slate-400">{fullDays} full plan{fullDays === 1 ? '' : 's'}</dd></div>
+        <div className="rounded-xl bg-slate-50 p-2.5 dark:bg-slate-800/60"><dt className="text-xs text-slate-500">Minutes spoken</dt><dd className="text-lg font-bold" data-testid="week-minutes">{minutes}</dd></div>
+        <div className="rounded-xl bg-slate-50 p-2.5 dark:bg-slate-800/60"><dt className="text-xs text-slate-500">Reviews done</dt><dd className="text-lg font-bold" data-testid="week-reviews">{phraseReviews + redos.length}</dd><dd className="text-xs text-slate-400">{phraseReviews} phrase{phraseReviews === 1 ? '' : 's'} · {redos.length} old answer{redos.length === 1 ? '' : 's'}</dd></div>
+        <div className="rounded-xl bg-slate-50 p-2.5 dark:bg-slate-800/60"><dt className="text-xs text-slate-500">Answers improved</dt><dd className="text-lg font-bold" data-testid="week-better">{better}/{redos.length}</dd><dd className="text-xs text-slate-400">old answers redone better</dd></div>
+      </dl>
+    </section>
   );
 }

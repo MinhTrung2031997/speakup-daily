@@ -19,7 +19,7 @@ import { getDemoMode } from './gemini';
 import type {
   ReplayInfo,
   AppState, BuilderInfo, ListenSession, ChatFeedback, ChatMessage, ChatSession, DailyQuestion, Entry, FluencyStats, Phrase, Profile,
-  PronunciationResult, RecordingItem, RecordingKind, RetryResult, ReviewLog, Settings, ShadowAttemptInput, SoundItem, SuggestedAnswer, Topic, Upgrade, WordSession, SaySession, HuntDay, HuntUse, OverusedSwap, PartnerSession, StoryEntry,
+  PronunciationResult, RecordingItem, RecordingKind, RetryResult, ReviewLog, Settings, ShadowAttemptInput, SoundItem, SuggestedAnswer, Topic, Upgrade, WordSession, SaySession, HuntDay, HuntUse, OverusedSwap, PartnerSession, StoryEntry, DailyPlan, PlanItem, AnswerReview,
 } from './types';
 
 export const PRESET_TOPICS: Topic[] = TOPIC_CATALOGUE.map((t) => ({ id: t.id, name: t.name, emoji: t.emoji, active: true }));
@@ -236,6 +236,30 @@ const huntUseRow = (userId: string, u: HuntUse) => ({
   source: HUNT_SOURCES.includes(u.source) ? u.source : 'daily', level: HUNT_LEVELS.includes(u.level) ? u.level : 'absent',
   evidence: (u.evidence || '').slice(0, 1000), note: (u.note || '').slice(0, 500), better: (u.better || '').slice(0, 1000), question: (u.question || '').slice(0, 1000), created_at: ts(u.createdAt),
 });
+
+// Today's plan + answer reviews
+const planRow = (userId: string, p: DailyPlan) => ({
+  user_id: userId, plan_date: date(p.date), items: j(p.items), light: p.light, question: p.question || null,
+  streak: Math.max(0, Math.round(num(p.streak))), question_done: p.questionDone, reviews_done: p.reviewsDone, streak_day: p.streakDay,
+  left_text: (p.leftText || '').slice(0, 200), left_mins: Math.max(0, Math.round(num(p.leftMins))), reviews_left: Math.max(0, Math.round(num(p.reviewsLeft))),
+  completed_at: p.completedAt ? ts(p.completedAt) : null, created_at: ts(p.createdAt), updated_at: ts(p.updatedAt),
+});
+type PlanRowIn = { plan_date: string; items: Json; light: boolean; question: string | null; streak: number; question_done: boolean; reviews_done: boolean; streak_day: boolean; left_text: string | null; left_mins: number; reviews_left: number; completed_at: string | null; created_at: string; updated_at: string };
+const planFromRow = (r: PlanRowIn): DailyPlan => ({
+  date: r.plan_date, items: (Array.isArray(r.items) ? r.items : []) as unknown as PlanItem[], light: r.light, ...(r.question ? { question: r.question } : {}),
+  streak: r.streak, questionDone: r.question_done, reviewsDone: r.reviews_done, streakDay: r.streak_day, leftText: r.left_text || '', leftMins: r.left_mins,
+  reviewsLeft: r.reviews_left, ...(r.completed_at ? { completedAt: ms(r.completed_at) } : {}), createdAt: ms(r.created_at), updatedAt: ms(r.updated_at),
+});
+const answerReviewRow = (userId: string, r: AnswerReview) => ({
+  user_id: userId, answer_id: r.answerId, due_at: r.dueAt === '9999-12-31' ? r.dueAt : date(r.dueAt), interval_step: Math.max(0, Math.min(4, Math.round(r.step))),
+  last_result: r.lastResult, last_reviewed_on: r.lastReviewedOn || null, reviews: r.reviews, created_at: ts(r.createdAt), updated_at: ts(r.updatedAt),
+});
+type AnswerReviewRowIn = { answer_id: string; due_at: string; interval_step: number; last_result: string; last_reviewed_on: string | null; reviews: number; created_at: string; updated_at: string };
+const answerReviewFromRow = (r: AnswerReviewRowIn): AnswerReview => ({
+  answerId: r.answer_id, dueAt: r.due_at, step: r.interval_step, lastResult: r.last_result as AnswerReview['lastResult'],
+  ...(r.last_reviewed_on ? { lastReviewedOn: r.last_reviewed_on } : {}), reviews: r.reviews, createdAt: ms(r.created_at), updatedAt: ms(r.updated_at),
+});
+
 const partnerRow = (userId: string, x: PartnerSession) => ({
   id: x.id, user_id: userId, session_date: date(x.date), kind: x.kind === 'discord' ? 'discord' : 'scene', ref: (x.ref || '').slice(0, 120), title: (x.title || '').slice(0, 200),
   voice_only: !!x.voiceOnly, turns: j(x.turns.slice(-80).map((t) => ({ ...t, text: t.text.slice(0, 2000) }))), feedback: x.feedback ? j(x.feedback) : null,
@@ -424,6 +448,8 @@ export async function loadState(userId: string): Promise<AppState> {
   const huntDays = await fetchAll<{ id: string; hunt_date: string; targets: Json; created_at: string }>('word_hunt_days', 'id,hunt_date,targets,created_at', 'created_at').catch(() => []);
   const huntUses = await fetchAll<{ id: string; hunt_date: string; phrase: string; answer_ref: string; source: string; level: string; evidence: string; note: string; better: string; question: string; created_at: string }>(
     'word_hunt_uses', 'id,hunt_date,phrase,answer_ref,source,level,evidence,note,better,question,created_at', 'created_at').catch(() => []);
+  const planRows = await fetchAll<PlanRowIn>('daily_plans', 'plan_date,items,light,question,streak,question_done,reviews_done,streak_day,left_text,left_mins,reviews_left,completed_at,created_at,updated_at', 'plan_date').catch(() => []);
+  const answerReviewRows = await fetchAll<AnswerReviewRowIn>('answer_reviews', 'answer_id,due_at,interval_step,last_result,last_reviewed_on,reviews,created_at,updated_at', 'created_at').catch(() => []);
   const partnerRows = await fetchAll<PartnerRowIn>('partner_sessions', 'id,session_date,kind,ref,title,voice_only,turns,feedback,created_at,updated_at', 'created_at').catch(() => []);
   const storyRows = await fetchAll<StoryRowIn>('story_bank', 'slot_id,transcript,polished,structure,phrases_to_keep,beats,retell,retell_check,retells,created_at,updated_at', 'created_at').catch(() => []);
   const huntSwaps = await fetchAll<{ word: string; swaps: Json; created_at: string }>('overused_swaps', 'word,swaps,created_at', 'created_at').catch(() => []);
@@ -529,6 +555,8 @@ export async function loadState(userId: string): Promise<AppState> {
     wordSessions: wordRows.map(wordSessionFromRow),
     saySessions: sayRows.map(sayFromRow),
     partner: { sessions: partnerRows.map(partnerFromRow), stories: storyRows.map(storyFromRow) },
+    plans: planRows.map(planFromRow),
+    answerReviews: answerReviewRows.map(answerReviewFromRow),
     hunt: {
       days: huntDays.map((d) => ({ id: d.id, date: d.hunt_date, targets: (Array.isArray(d.targets) ? d.targets : []) as unknown as HuntDay['targets'], createdAt: ms(d.created_at) })),
       uses: huntUses.map((u) => ({ id: u.id, date: u.hunt_date, phrase: u.phrase, ref: u.answer_ref, source: u.source as HuntUse['source'], level: u.level as HuntUse['level'], evidence: u.evidence, note: u.note, better: u.better, question: u.question, createdAt: ms(u.created_at) })),
@@ -674,6 +702,19 @@ export async function syncChanges(userId: string, prev: AppState, next: AppState
       const changed = nn.swaps.filter((w) => old.get(w.word) !== w);
       for (const c of chunks(changed)) check(await supabase.from('overused_swaps').upsert(c.map((w) => swapRow(userId, w)), { onConflict: 'user_id,word' }), 'Save swaps');
     }
+  }
+
+  // Today's plan (one row per local day) and answer reviews (one row per reviewed answer)
+  if ((prev.plans || []) !== (next.plans || [])) {
+    const old = new Map((prev.plans || []).map((x) => [x.date, x]));
+    const changed = (next.plans || []).filter((x) => old.get(x.date) !== x);
+    for (const c of chunks(changed)) check(await supabase.from('daily_plans').upsert(c.map((x) => planRow(userId, x)), { onConflict: 'user_id,plan_date' }), "Save today's plan");
+  }
+  if ((prev.answerReviews || []) !== (next.answerReviews || [])) {
+    const old = new Map((prev.answerReviews || []).map((x) => [x.answerId, x]));
+    const answerIds = new Set(next.entries.map((e) => e.id));
+    const changed = (next.answerReviews || []).filter((x) => old.get(x.answerId) !== x && isUuid(x.answerId) && answerIds.has(x.answerId));
+    for (const c of chunks(changed)) check(await supabase.from('answer_reviews').upsert(c.map((x) => answerReviewRow(userId, x)), { onConflict: 'user_id,answer_id' }), 'Save answer review');
   }
 
   // Voice partner: role-play / Discord sessions (history can be deleted) and the Story bank (one row per slot)
@@ -997,7 +1038,7 @@ export async function importLegacy(userId: string, legacy: AppState, current: Ap
 // ---------------------------------------------------------------------------
 export async function resetAll(userId: string): Promise<void> {
   // Children cascade: answers -> fluency_stats, phrases -> phrase_reviews, chat_sessions -> chat_messages.
-  for (const t of ['recordings', 'shadowing_attempts', 'fluency_stats', 'answers', 'phrases', 'chat_sessions', 'daily_questions', 'daily_activity', 'listening_sessions', 'pronunciation_items', 'word_sessions', 'say_sessions', 'word_hunt_days', 'word_hunt_uses', 'overused_swaps', 'partner_sessions', 'story_bank'] as const) {
+  for (const t of ['recordings', 'shadowing_attempts', 'fluency_stats', 'answers', 'phrases', 'chat_sessions', 'daily_questions', 'daily_activity', 'listening_sessions', 'pronunciation_items', 'word_sessions', 'say_sessions', 'word_hunt_days', 'word_hunt_uses', 'overused_swaps', 'partner_sessions', 'story_bank', 'daily_plans', 'answer_reviews'] as const) {
     check(await supabase.from(t).delete().eq('user_id', userId), `Delete ${t}`);
   }
   check(await supabase.from('topics').delete().eq('user_id', userId).eq('is_custom', true), 'Delete custom topics');

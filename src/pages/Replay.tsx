@@ -15,7 +15,8 @@ import { HuntResult } from '../components/HuntCards';
 import { useHunt } from '../lib/useHunt';
 import { filterWordsUsed } from '../lib/learnPrompts';
 import { groupTopics, topicIdOf } from '../lib/topics';
-import type { DailyQuestion, Entry, PronunciationResult } from '../lib/types';
+import type { AnswerReview, DailyQuestion, Entry, PronunciationResult } from '../lib/types';
+import { ANSWER_GAPS, latestAttempt, nextReview } from '../lib/plan';
 import type { AudioClip } from '../lib/audio';
 import type { SpeechSample } from '../lib/speech';
 import MicInput from '../components/MicInput';
@@ -79,6 +80,21 @@ export default function Replay() {
 
   const q = state.questions.find((x) => x.id === qid);
 
+  // Answer review (from Today's plan): /replay?review=<answerId>
+  const reviewId = params.get('review') || '';
+  const review = reviewId ? (state.answerReviews || []).find((r) => r.answerId === reviewId) : undefined;
+  const reviewEntry = reviewId ? state.entries.find((e) => e.id === reviewId) : undefined;
+  if (reviewId) {
+    const rq: DailyQuestion | undefined = reviewEntry && (state.questions.find((x) => x.id === reviewEntry.questionId)
+      || { id: reviewEntry.questionId || reviewEntry.id, date: reviewEntry.date, topicId: '', topicName: reviewEntry.topicName, question: reviewEntry.question, starters: [], createdAt: reviewEntry.createdAt });
+    return (
+      <div className="space-y-4">
+        <PageTitle title="🔁 Answer review" subtitle="Hear your old answer, then answer the same question again." right={<Link to="/#plan" className="btn-ghost !py-1 text-sm">Today's plan</Link>} />
+        {rq && review && reviewEntry ? <ReplayRound key={reviewId} q={rq} review={review} reviewEntry={reviewEntry} /> : <p className="muted text-sm" data-testid="review-missing">This answer isn't available for review any more.</p>}
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
       <PageTitle title="🔁 Replay" subtitle="Answer an old question again, then compare your first try with now." right={<Link to="/" className="btn-ghost !py-1 text-sm">Today</Link>} />
@@ -106,8 +122,11 @@ export default function Replay() {
   );
 }
 
-function ReplayRound({ q }: { q: DailyQuestion }) {
+function ReplayRound({ q, review, reviewEntry }: { q: DailyQuestion; review?: AnswerReview; reviewEntry?: Entry }) {
   const { state, update, addPhrases, logActivity, saveRecordings, reviewPhrase } = useStore();
+  // Review mode compares against the latest earlier attempt (fixed when the screen opens).
+  const [base] = useState(() => (reviewEntry ? latestAttempt(state, reviewEntry) : undefined));
+  const [reviewResult, setReviewResult] = useState<AnswerReview>();
   const ai = useAIConfig();
   const hunt = useHunt();
   const prev = useMemo(() => answersFor(state.entries, q), [state.entries, q]);
@@ -124,7 +143,7 @@ function ReplayRound({ q }: { q: DailyQuestion }) {
   const fluency = useMemo(() => withAudioFluency(analyzeFluency(samples), pron), [samples, pron]);
   useEffect(() => { if (!answer.trim()) { setSamples([]); setClips([]); setPron(undefined); } }, [answer]);
 
-  const first = prev.find((e) => e.id !== newId);
+  const first = base || prev.find((e) => e.id !== newId);
   const latest = state.entries.find((e) => e.id === newId);
 
   const submit = async () => {
@@ -156,6 +175,13 @@ function ReplayRound({ q }: { q: DailyQuestion }) {
         if (p) reviewPhrase(p.id, { level: t.level, sentence: answer.trim(), feedback: t.fix, drill: 'replay', byVoice: voiced });
       }
       addPhrases(up.phrases, q.question);
+      if (review) {
+        const better = !!cmp && cmp.score.new > cmp.score.old;
+        const same = !cmp || cmp.score.new === cmp.score.old;
+        const nr = nextReview(review, better, same);
+        update((s) => ({ ...s, answerReviews: (s.answerReviews || []).map((r) => (r.answerId === review.answerId ? nr : r)) }));
+        setReviewResult(nr);
+      }
       logActivity();
       if (voiced) void hunt.run({ ref: `replay:${e.id}`, source: 'replay', question: q.question, transcript: answer.trim() });
     } catch (err) { setError(errorText(err)); } finally { setBusy(false); }
@@ -179,6 +205,20 @@ function ReplayRound({ q }: { q: DailyQuestion }) {
         )}
       </section>
 
+      {review && base && !latest && (
+        <section className="card space-y-2" data-testid="review-old">
+          <h2 className="h-section">🎧 First, hear your old answer</h2>
+          {recsFor(base.id).length ? (
+            <>
+              <p className="muted text-sm">This is how you answered on {prettyDate(base.date)}. Your old text stays hidden until you answer, so you don't just read it back.</p>
+              {recsFor(base.id).slice(-1).map((r) => <RecordingPlayer key={r.id} rec={r} label="Your old answer" />)}
+            </>
+          ) : (
+            <p className="muted text-sm" data-testid="review-no-rec">There's no recording of your answer from {prettyDate(base.date)}. You'll see your old text after you answer.</p>
+          )}
+        </section>
+      )}
+
       {!latest && (
         <section className="card space-y-3">
           <h2 className="h-section">🎙️ Answer it again</h2>
@@ -196,6 +236,14 @@ function ReplayRound({ q }: { q: DailyQuestion }) {
 
       {latest && (
         <>
+          {reviewResult && (
+            <div className={`rounded-xl p-3 text-sm ${reviewResult.lastResult === 'better' ? 'bg-emerald-50 text-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-100' : 'bg-amber-50 text-amber-900 dark:bg-amber-950/40 dark:text-amber-100'}`} data-testid="review-result" data-result={reviewResult.lastResult}>
+              {reviewResult.lastResult === 'better'
+                ? (reviewResult.step >= ANSWER_GAPS.length ? '🏆 Better again. This answer is done: it won\'t come back for review.' : `📈 Better than last time! This question comes back in ${ANSWER_GAPS[reviewResult.step]} days.`)
+                : '🔁 Not better yet, and that\'s fine. This question comes back tomorrow.'}
+              {' '}<Link to="/#plan" className="font-semibold underline">Back to today's plan</Link>
+            </div>
+          )}
           <ThenVsNow first={first} latest={latest} recsFor={recsFor} />
           {recNote && <p className="muted text-xs" data-testid="rec-note">{recNote}</p>}
           <HuntResult refId={`replay:${latest.id}`} busy={hunt.busyRef} error={hunt.error} />

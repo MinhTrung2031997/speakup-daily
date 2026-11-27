@@ -1,3 +1,4 @@
+import { usePlanKeeper } from '../lib/usePlan';
 import { NavLink, Outlet } from 'react-router-dom';
 import { useStore } from '../lib/store';
 import ImportBanner from './ImportBanner';
@@ -17,6 +18,7 @@ const NAV = [
 
 export default function Layout() {
   const { state, update, saveError } = useStore();
+  usePlanKeeper();
   const due = state.phrases.filter((p) => isDue(p)).length + state.sounds.filter((x) => isDue(x)).length;
   const toggleDark = () => update((s) => ({ ...s, settings: { ...s.settings, dark: !s.settings.dark } }));
   const demo = state.settings.demo;

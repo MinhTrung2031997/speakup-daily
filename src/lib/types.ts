@@ -245,6 +245,10 @@ export interface AppState {
   hunt: HuntState;
   /** Voice partner (Chat tab): role-play / Discord sessions and the Story bank. */
   partner: PartnerState;
+  /** Today's plan, one per local day (daily_plans), oldest first. */
+  plans: DailyPlan[];
+  /** Old daily answers coming back on a 1/3/7/21-day schedule (answer_reviews). */
+  answerReviews: AnswerReview[];
   sounds: SoundItem[];
   /** Saved mic recordings (recordings table + private bucket), oldest first. Kept permanently. */
   recordings: RecordingItem[];
@@ -506,4 +510,56 @@ export interface StoryEntry {
 export interface PartnerState {
   sessions: PartnerSession[];
   stories: StoryEntry[];
+}
+
+// ---- Today's plan ----
+export type PlanItemKind = 'question' | 'reviews' | 'redo' | 'extra';
+/** The rotating extra, picked from the weakest area in the last 7 days. */
+export type PlanExtra = 'voice' | 'listen' | 'scene' | 'discord' | 'say';
+export interface PlanItem {
+  id: string;
+  kind: PlanItemKind;
+  extra?: PlanExtra;
+  title: string;
+  detail: string;
+  mins: number;
+  link: string;
+  /** reviews: how many phrase reviews make the step done. */
+  target?: number;
+  /** redo: the answer under review (answer_reviews.answer_id). */
+  answerId?: string;
+  done: boolean;
+  doneAt?: number;
+}
+export interface DailyPlan {
+  date: string;
+  items: PlanItem[];
+  /** Light day after a missed day: the daily question + 3 reviews only. */
+  light: boolean;
+  /** Why the extra was picked (shown on the card). */
+  weak?: string;
+  question?: string;
+  /** Plan streak when this was last saved (for the reminder text). */
+  streak: number;
+  questionDone: boolean;
+  reviewsDone: boolean;
+  /** Daily question + due reviews done: counts for the streak. */
+  streakDay: boolean;
+  leftText: string;
+  leftMins: number;
+  reviewsLeft: number;
+  completedAt?: number;
+  createdAt: number;
+  updatedAt: number;
+}
+export interface AnswerReview {
+  answerId: string;
+  dueAt: string;
+  /** 0..3 = next gap 1/3/7/21 days; 4 = done. */
+  step: number;
+  lastResult: 'new' | 'better' | 'same' | 'worse';
+  lastReviewedOn?: string;
+  reviews: number;
+  createdAt: number;
+  updatedAt: number;
 }

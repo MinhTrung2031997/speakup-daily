@@ -13,3 +13,8 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <ConfirmHost />
   </React.StrictMode>,
 );
+
+// Service worker for reminder notifications (push + tap to open Today's plan).
+if ('serviceWorker' in navigator && import.meta.env.PROD) {
+  window.addEventListener('load', () => { navigator.serviceWorker.register('/sw.js').catch(() => undefined); });
+}

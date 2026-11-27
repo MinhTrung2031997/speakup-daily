@@ -1,3 +1,5 @@
+import DailyPlanCard from '../components/DailyPlan';
+import { planStreak } from '../lib/plan';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { SpokenQuestion } from '../components/AskAloud';
 import { Link } from 'react-router-dom';
@@ -7,7 +9,6 @@ import { generateQuestion, inferQuestionType, scoreRetry, upgradeAnswer } from '
 import { errorText } from '../lib/gemini';
 import { prettyDate, todayStr, uid } from '../lib/date';
 import { isDue } from '../lib/srs';
-import { streak } from '../lib/stats';
 import type { DailyQuestion, Entry, PronunciationResult } from '../lib/types';
 import type { AudioClip } from '../lib/audio';
 import type { SpeechSample } from '../lib/speech';
@@ -208,7 +209,7 @@ export default function Today() {
     }
   };
 
-  const st = streak(state);
+  const st = planStreak(state);
   const due = state.phrases.filter((p) => isDue(p)).length + state.sounds.filter((x) => isDue(x)).length;
   const name = state.profile.name.trim();
 
@@ -226,6 +227,8 @@ export default function Today() {
         </div>
       </div>
 
+      <DailyPlanCard />
+
       <div className="grid grid-cols-2 rounded-xl bg-slate-100 p-1 dark:bg-slate-800" role="tablist">
         <button role="tab" aria-selected={mode === 'daily'} onClick={() => switchMode('daily')} className={`rounded-lg px-3 py-2 text-sm font-medium ${mode === 'daily' ? 'bg-white shadow-sm dark:bg-slate-950' : 'text-slate-500'}`}>📅 Daily question</button>
         <button role="tab" aria-selected={mode === 'builder'} onClick={() => switchMode('builder')} className={`rounded-lg px-3 py-2 text-sm font-medium ${mode === 'builder' ? 'bg-white shadow-sm dark:bg-slate-950' : 'text-slate-500'}`}>🧩 Answer builder</button>
@@ -234,7 +237,7 @@ export default function Today() {
       {mode === 'builder' ? <AnswerBuilder /> : (
       <>
       {/* Question card */}
-      <section className="card relative overflow-hidden">
+      <section className="card relative overflow-hidden scroll-mt-20" id="question">
         <div className="pointer-events-none absolute -right-10 -top-10 h-36 w-36 rounded-full bg-blue-100/70 blur-2xl dark:bg-blue-900/30" />
         <div className="relative">
           <div className="mb-2 flex items-center justify-between gap-2">

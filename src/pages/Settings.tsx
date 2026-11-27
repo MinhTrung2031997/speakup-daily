@@ -1,3 +1,4 @@
+import ReminderSettingsCard from '../components/ReminderSettings';
 import { useRef, useState } from 'react';
 import { useStore, normalizeState } from '../lib/store';
 import RecordingPlayer from '../components/RecordingPlayer';
@@ -105,6 +106,8 @@ export default function Settings() {
           {msg && <span className={`text-sm ${msg.ok ? 'text-emerald-600 dark:text-emerald-300' : 'text-rose-600 dark:text-rose-300'}`}>{msg.text}</span>}
         </div>
       </section>
+
+      <ReminderSettingsCard />
 
       <QuestionVoiceCard />
 

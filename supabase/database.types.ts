@@ -788,6 +788,36 @@ export type Database = {
         Update: { created_at?: string; swaps?: Json; user_id?: string; word?: string }
         Relationships: []
       }
+      daily_plans: {
+        Row: { user_id: string; plan_date: string; items: Json; light: boolean; question: string | null; streak: number; question_done: boolean; reviews_done: boolean; streak_day: boolean; left_text: string | null; left_mins: number; reviews_left: number; completed_at: string | null; created_at: string; updated_at: string }
+        Insert: { user_id?: string; plan_date: string; items?: Json; light?: boolean; question?: string | null; streak?: number; question_done?: boolean; reviews_done?: boolean; streak_day?: boolean; left_text?: string | null; left_mins?: number; reviews_left?: number; completed_at?: string | null; created_at?: string; updated_at?: string }
+        Update: { user_id?: string; plan_date?: string; items?: Json; light?: boolean; question?: string | null; streak?: number; question_done?: boolean; reviews_done?: boolean; streak_day?: boolean; left_text?: string | null; left_mins?: number; reviews_left?: number; completed_at?: string | null; created_at?: string; updated_at?: string }
+        Relationships: []
+      }
+      answer_reviews: {
+        Row: { user_id: string; answer_id: string; due_at: string; interval_step: number; last_result: string; last_reviewed_on: string | null; reviews: number; created_at: string; updated_at: string }
+        Insert: { user_id?: string; answer_id: string; due_at: string; interval_step?: number; last_result?: string; last_reviewed_on?: string | null; reviews?: number; created_at?: string; updated_at?: string }
+        Update: { user_id?: string; answer_id?: string; due_at?: string; interval_step?: number; last_result?: string; last_reviewed_on?: string | null; reviews?: number; created_at?: string; updated_at?: string }
+        Relationships: []
+      }
+      reminder_settings: {
+        Row: { user_id: string; enabled: boolean; remind_time: string; days: number[]; timezone: string; evening: boolean; evening_time: string; updated_at: string }
+        Insert: { user_id?: string; enabled?: boolean; remind_time?: string; days?: number[]; timezone?: string; evening?: boolean; evening_time?: string; updated_at?: string }
+        Update: { user_id?: string; enabled?: boolean; remind_time?: string; days?: number[]; timezone?: string; evening?: boolean; evening_time?: string; updated_at?: string }
+        Relationships: []
+      }
+      push_subscriptions: {
+        Row: { id: string; user_id: string; endpoint: string; p256dh: string; auth: string; user_agent: string | null; failures: number; last_ok_at: string | null; created_at: string }
+        Insert: { id?: string; user_id?: string; endpoint: string; p256dh: string; auth: string; user_agent?: string | null; failures?: number; last_ok_at?: string | null; created_at?: string }
+        Update: { id?: string; user_id?: string; endpoint?: string; p256dh?: string; auth?: string; user_agent?: string | null; failures?: number; last_ok_at?: string | null; created_at?: string }
+        Relationships: []
+      }
+      push_log: {
+        Row: { id: string; user_id: string; local_date: string; kind: string; title: string | null; body: string | null; sent: number; status: string | null; created_at: string }
+        Insert: { id?: string; user_id: string; local_date: string; kind: string; title?: string | null; body?: string | null; sent?: number; status?: string | null; created_at?: string }
+        Update: { id?: string; user_id?: string; local_date?: string; kind?: string; title?: string | null; body?: string | null; sent?: number; status?: string | null; created_at?: string }
+        Relationships: []
+      }
       say_sessions: {
         Row: { created_at: string; grade: Json | null; id: string; input: string; input_lang: string; picked: number | null; result: Json; session_date: string; shadowed: boolean; updated_at: string; user_id: string }
         Insert: { created_at?: string; grade?: Json | null; id?: string; input: string; input_lang?: string; picked?: number | null; result: Json; session_date?: string; shadowed?: boolean; updated_at?: string; user_id?: string }
