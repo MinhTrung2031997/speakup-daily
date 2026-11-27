@@ -198,3 +198,46 @@ export async function clipFromUrl(url: string, seconds: number): Promise<AudioCl
     return null;
   }
 }
+
+/** Decode a recorded clip to mono PCM at `rate` (16 kHz by default). */
+export async function decodePcm(blob: Blob, rate = TARGET_RATE): Promise<Float32Array> {
+  const Ctx = window.OfflineAudioContext || (window as unknown as { webkitOfflineAudioContext: typeof OfflineAudioContext }).webkitOfflineAudioContext;
+  const decoded = await new Ctx(1, 1, rate).decodeAudioData(await blob.arrayBuffer());
+  const off = new Ctx(1, Math.max(1, Math.ceil(decoded.duration * rate)), rate);
+  const src = off.createBufferSource();
+  src.buffer = decoded;
+  src.connect(off.destination);
+  src.start();
+  return (await off.startRendering()).getChannelData(0);
+}
+
+/**
+ * Time to first word: the first 60 ms run of loud 20 ms frames (same adaptive threshold as measurePauses).
+ * Returns seconds from the start of the clip, or null when nothing was said.
+ */
+export function speechOnset(pcm: Float32Array, rate: number): number | null {
+  const frame = Math.max(1, Math.round(rate * 0.02));
+  const n = Math.floor(pcm.length / frame);
+  if (!n) return null;
+  const rms = new Float32Array(n);
+  for (let f = 0; f < n; f++) {
+    let sum = 0;
+    for (let i = f * frame; i < (f + 1) * frame; i++) sum += pcm[i] * pcm[i];
+    rms[f] = Math.sqrt(sum / frame);
+  }
+  const sorted = Array.from(rms).sort((a, b) => a - b);
+  const floor = sorted[Math.floor(n * 0.1)];
+  const peak = sorted[Math.floor(n * 0.98)];
+  // A clip with no real speech has a peak close to its floor: treat it as silent.
+  if (peak < 0.01 || peak < floor * 4) return null;
+  const thr = Math.max(0.006, floor * 3, peak * 0.1);
+  for (let f = 0; f + 2 < n; f++) {
+    if (rms[f] > thr && rms[f + 1] > thr && rms[f + 2] > thr) return Math.round(((f * frame) / rate) * 100) / 100;
+  }
+  return null;
+}
+
+/** 16 kHz WAV (base64) of decoded PCM, for Gemini. */
+export function wavBase64(pcm: Float32Array, rate = TARGET_RATE): string {
+  return toBase64(wavFromPcm(pcm, rate));
+}

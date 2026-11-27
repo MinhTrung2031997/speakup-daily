@@ -794,3 +794,29 @@ export async function overusedSwaps(cfg: GeminiConfig, word: string, sentences: 
   if (!swaps.length) throw new Error('No swaps came back. Please try again.');
   return swaps;
 }
+
+/**
+ * Reply speed meter: what was said in one short quick-fire answer, with every filler counted from the AUDIO
+ * (Chrome's transcript drops most of them). Light prompt, no coaching.
+ */
+export async function quickFireFillers(
+  cfg: GeminiConfig,
+  audio: { mimeType: string; data: string; seconds: number },
+  opts: { question: string; transcript?: string },
+): Promise<{ transcript: string; fillers: Record<string, number>; total: number }> {
+  const prompt = `Quick-fire speaking drill. A Vietnamese learner of English answered this question out loud: "${opts.question.slice(0, 200)}".
+${opts.transcript ? `Browser speech recognition heard (rough hint only; it drops fillers): """${opts.transcript.slice(0, 600)}"""` : ''}
+The recording is about ${Math.round(audio.seconds)} seconds long.
+Transcribe EXACTLY what you hear, word for word, including every hesitation (um, uh, er, ah, hmm) and filler phrase (like, you know, I mean, kind of, sort of, well, so, actually, basically). Count "like"/"so"/"well"/"actually" only when used as a filler, not when they carry meaning.
+If there is no speech, return an empty transcript and {}.
+JSON shape: {"transcript": string, "fillers": {"<filler>": number}}`;
+  const r = await generateJSON<Record<string, unknown>>(cfg, 'quickfire-fillers', 'You transcribe short learner recordings precisely. Reply with JSON only.', [{ role: 'user', text: prompt, audio: { mimeType: audio.mimeType, data: audio.data } }], 0.1);
+  const fillers: Record<string, number> = {};
+  const raw = r.fillers && typeof r.fillers === 'object' && !Array.isArray(r.fillers) ? (r.fillers as Record<string, unknown>) : {};
+  for (const [k, v] of Object.entries(raw)) {
+    const key = k.toLowerCase().replace(/[^a-z ]/g, '').trim();
+    const c = Math.max(0, Math.min(50, Math.round(Number(v) || 0)));
+    if (key && c) fillers[key] = (fillers[key] || 0) + c;
+  }
+  return { transcript: typeof r.transcript === 'string' ? r.transcript : '', fillers, total: Object.values(fillers).reduce((a, b) => a + b, 0) };
+}

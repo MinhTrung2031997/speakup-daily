@@ -169,6 +169,13 @@ export function mockResponse(task: string, turns: GeminiTurn[]): unknown {
       return LISTEN_DRILL;
     case 'pronunciation':
       return mockPronunciation(last);
+    case 'quickfire-fillers': {
+      // Demo: Chrome's hint plus a believable "um" every ~8 words.
+      const said = (last.match(/heard \(rough hint only; it drops fillers\): """([\s\S]*?)"""/)?.[1] || '').trim();
+      const words = said.split(/\s+/).filter(Boolean);
+      const um = Math.floor(words.length / 8);
+      return { transcript: words.map((w, i) => (i && i % 8 === 0 ? `um ${w}` : w)).join(' '), fillers: um ? { um } : {} };
+    }
     case 'listen-retell': {
       const retell = (last.split('60-second retell')[1] || '').toLowerCase();
       const covered = LISTEN_DRILL.keyIdeas.filter((k) => k.toLowerCase().split(' ').filter((w) => w.length > 4).some((w) => retell.includes(w)));

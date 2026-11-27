@@ -352,6 +352,14 @@ export default function Today() {
         </div>
       )}
 
+      <Link to="/speed" className="card flex items-center gap-3 transition hover:border-amber-300 dark:hover:border-amber-800" data-testid="speed-link">
+        <span className="text-2xl">⚡</span>
+        <div className="flex-1">
+          <p className="font-semibold">Reply speed round</p>
+          <p className="muted">8 quick questions. Start talking within 3 seconds. About 4 min.</p>
+        </div>
+      </Link>
+
       {entry?.upgrade && (
         <Link to="/chat" className="card flex items-center gap-3 transition hover:border-blue-300 dark:hover:border-blue-800">
           <span className="text-2xl">💬</span>

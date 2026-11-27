@@ -19,7 +19,7 @@ import { getDemoMode } from './gemini';
 import type {
   ReplayInfo,
   AppState, BuilderInfo, ListenSession, ChatFeedback, ChatMessage, ChatSession, DailyQuestion, Entry, FluencyStats, Phrase, Profile,
-  PronunciationResult, RecordingItem, RecordingKind, RetryResult, ReviewLog, Settings, ShadowAttemptInput, SoundItem, SuggestedAnswer, Topic, Upgrade, WordSession, SaySession, HuntDay, HuntUse, OverusedSwap, PartnerSession, StoryEntry, DailyPlan, PlanItem, AnswerReview,
+  PronunciationResult, RecordingItem, RecordingKind, RetryResult, ReviewLog, Settings, ShadowAttemptInput, SoundItem, SuggestedAnswer, Topic, Upgrade, WordSession, SaySession, HuntDay, HuntUse, OverusedSwap, PartnerSession, StoryEntry, DailyPlan, PlanItem, AnswerReview, QuickFireRound,
 } from './types';
 
 export const PRESET_TOPICS: Topic[] = TOPIC_CATALOGUE.map((t) => ({ id: t.id, name: t.name, emoji: t.emoji, active: true }));
@@ -196,6 +196,38 @@ function wordSessionFromRow(r: WordSessionRowIn): WordSession {
     current: Number(p.current) || 0,
     items: (Array.isArray(p.items) ? p.items : []) as WordSession['items'],
     ...(r.completed_at ? { completedAt: ms(r.completed_at) } : {}),
+    createdAt: ms(r.created_at),
+  };
+}
+
+const qnum = (v: number | null | undefined, lo: number, hi: number) => (v == null || !Number.isFinite(v) ? null : Math.round(clamp(v, lo, hi) * 100) / 100);
+function quickfireRow(userId: string, x: QuickFireRound) {
+  return {
+    id: x.id,
+    user_id: userId,
+    round_date: date(x.date),
+    level: x.level === 'open' ? 'open' : 'easy',
+    start_limit: clamp(x.startLimit || 3, 1, 10),
+    avg_start: qnum(x.avgStart, 0, 999),
+    fillers_per_min: qnum(x.fillersPerMin, 0, 9999),
+    longest_pause: qnum(x.longestPause, 0, 999),
+    misses: clamp(Math.round(x.misses || 0), 0, 8),
+    answers: j(x.answers.slice(0, 12)),
+    best_index: x.bestIndex,
+    worst_index: x.worstIndex,
+    filler_source: x.fillerSource,
+    created_at: ts(x.createdAt),
+  };
+}
+type QuickfireRowIn = { id: string; round_date: string; level: string; start_limit: number; avg_start: number | null; fillers_per_min: number | null; longest_pause: number | null; misses: number; answers: Json; best_index: number | null; worst_index: number | null; filler_source: string; created_at: string };
+const nOrNull = (v: unknown) => (v == null || !Number.isFinite(Number(v)) ? null : Number(v));
+function quickfireFromRow(r: QuickfireRowIn): QuickFireRound {
+  return {
+    id: r.id, date: r.round_date, level: r.level === 'open' ? 'open' : 'easy', startLimit: Number(r.start_limit) || 3,
+    avgStart: nOrNull(r.avg_start), fillersPerMin: nOrNull(r.fillers_per_min), longestPause: nOrNull(r.longest_pause), misses: r.misses || 0,
+    answers: (Array.isArray(r.answers) ? r.answers : []) as unknown as QuickFireRound['answers'],
+    bestIndex: r.best_index, worstIndex: r.worst_index,
+    fillerSource: (['gemini', 'chrome', 'mixed'].includes(r.filler_source) ? r.filler_source : 'chrome') as QuickFireRound['fillerSource'],
     createdAt: ms(r.created_at),
   };
 }
@@ -444,6 +476,7 @@ export async function loadState(userId: string): Promise<AppState> {
     fetchAll<RecordingRow>('recordings', RECORDING_COLS, 'created_at').catch(() => []),
   ]);
   const wordRows = await fetchAll<WordSessionRowIn>('word_sessions', 'id,session_date,topic,words,progress,completed_at,created_at', 'created_at').catch(() => []);
+  const quickfireRows = await fetchAll<QuickfireRowIn>('quickfire_rounds', 'id,round_date,level,start_limit,avg_start,fillers_per_min,longest_pause,misses,answers,best_index,worst_index,filler_source,created_at', 'created_at').catch(() => []);
   const sayRows = await fetchAll<SayRowIn>('say_sessions', 'id,session_date,input,input_lang,result,picked,shadowed,grade,created_at', 'created_at').catch(() => []);
   const huntDays = await fetchAll<{ id: string; hunt_date: string; targets: Json; created_at: string }>('word_hunt_days', 'id,hunt_date,targets,created_at', 'created_at').catch(() => []);
   const huntUses = await fetchAll<{ id: string; hunt_date: string; phrase: string; answer_ref: string; source: string; level: string; evidence: string; note: string; better: string; question: string; created_at: string }>(
@@ -557,6 +590,7 @@ export async function loadState(userId: string): Promise<AppState> {
     partner: { sessions: partnerRows.map(partnerFromRow), stories: storyRows.map(storyFromRow) },
     plans: planRows.map(planFromRow),
     answerReviews: answerReviewRows.map(answerReviewFromRow),
+    quickfire: quickfireRows.map(quickfireFromRow),
     hunt: {
       days: huntDays.map((d) => ({ id: d.id, date: d.hunt_date, targets: (Array.isArray(d.targets) ? d.targets : []) as unknown as HuntDay['targets'], createdAt: ms(d.created_at) })),
       uses: huntUses.map((u) => ({ id: u.id, date: u.hunt_date, phrase: u.phrase, ref: u.answer_ref, source: u.source as HuntUse['source'], level: u.level as HuntUse['level'], evidence: u.evidence, note: u.note, better: u.better, question: u.question, createdAt: ms(u.created_at) })),
@@ -740,6 +774,14 @@ export async function syncChanges(userId: string, prev: AppState, next: AppState
   }
 
   // "Say it better" sessions (history can be deleted)
+  if ((prev.quickfire || []) !== (next.quickfire || [])) {
+    const old = byId(prev.quickfire || []);
+    const changed = (next.quickfire || []).filter((x) => old.get(x.id) !== x && isUuid(x.id));
+    for (const c of chunks(changed)) check(await supabase.from('quickfire_rounds').upsert(c.map((x) => quickfireRow(userId, x))), 'Save speed round');
+    const ids = new Set((next.quickfire || []).map((x) => x.id));
+    const gone = (prev.quickfire || []).filter((x) => !ids.has(x.id)).map((x) => x.id);
+    for (const c of chunks(gone)) check(await supabase.from('quickfire_rounds').delete().in('id', c), 'Delete speed round');
+  }
   if ((prev.saySessions || []) !== (next.saySessions || [])) {
     const old = byId(prev.saySessions || []);
     const changed = (next.saySessions || []).filter((x) => old.get(x.id) !== x && isUuid(x.id));
@@ -1038,7 +1080,7 @@ export async function importLegacy(userId: string, legacy: AppState, current: Ap
 // ---------------------------------------------------------------------------
 export async function resetAll(userId: string): Promise<void> {
   // Children cascade: answers -> fluency_stats, phrases -> phrase_reviews, chat_sessions -> chat_messages.
-  for (const t of ['recordings', 'shadowing_attempts', 'fluency_stats', 'answers', 'phrases', 'chat_sessions', 'daily_questions', 'daily_activity', 'listening_sessions', 'pronunciation_items', 'word_sessions', 'say_sessions', 'word_hunt_days', 'word_hunt_uses', 'overused_swaps', 'partner_sessions', 'story_bank', 'daily_plans', 'answer_reviews'] as const) {
+  for (const t of ['recordings', 'shadowing_attempts', 'fluency_stats', 'answers', 'phrases', 'chat_sessions', 'daily_questions', 'daily_activity', 'listening_sessions', 'pronunciation_items', 'word_sessions', 'say_sessions', 'word_hunt_days', 'word_hunt_uses', 'overused_swaps', 'partner_sessions', 'story_bank', 'daily_plans', 'answer_reviews', 'quickfire_rounds'] as const) {
     check(await supabase.from(t).delete().eq('user_id', userId), `Delete ${t}`);
   }
   check(await supabase.from('topics').delete().eq('user_id', userId).eq('is_custom', true), 'Delete custom topics');
@@ -1046,7 +1088,7 @@ export async function resetAll(userId: string): Promise<void> {
   check(await supabase.from('profiles').upsert({ user_id: userId, ...DEFAULT_PROFILE }), 'Reset profile');
   check(await supabase.from('user_settings').upsert({ user_id: userId, onboarded: false }), 'Reset settings');
   // Recordings (best effort): every '<user_id>/<kind>/<date>/<file>' object.
-  for (const kind of ['shadowing', 'answer', 'retry', 'builder', 'retell']) {
+  for (const kind of ['shadowing', 'answer', 'retry', 'builder', 'retell', 'quickfire']) {
     try {
       const folder = `${userId}/${kind}`;
       const { data: days } = await supabase.storage.from('recordings').list(folder, { limit: 1000 });

@@ -7,6 +7,7 @@ import Listen from './pages/Listen';
 import Phrases from './pages/Phrases';
 import Words from './pages/Words';
 import SayItBetter from './pages/SayItBetter';
+import SpeedMeter from './pages/SpeedMeter';
 import Replay from './pages/Replay';
 import History from './pages/History';
 import Progress from './pages/Progress';
@@ -27,6 +28,7 @@ export default function App() {
           <Route path="phrases" element={<Phrases />} />
           <Route path="words" element={<Words />} />
           <Route path="say" element={<SayItBetter />} />
+          <Route path="speed" element={<SpeedMeter />} />
           <Route path="replay" element={<Replay />} />
           <Route path="history" element={<History />} />
           <Route path="progress" element={<Progress />} />

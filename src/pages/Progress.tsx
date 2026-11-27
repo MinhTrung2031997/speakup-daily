@@ -1,3 +1,4 @@
+import { SpeedTrend } from '../components/SpeedTrend';
 import { Link } from 'react-router-dom';
 import { useStore } from '../lib/store';
 import { addDays, lastNDays, todayStr } from '../lib/date';
@@ -68,6 +69,14 @@ export default function Progress() {
       </div>
 
       <ThisWeek state={state} />
+
+      <section className="card space-y-2" data-testid="progress-speed">
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="h-section text-base">⚡ Reply speed</h2>
+          <Link to="/speed" className="btn-soft !py-1.5 text-sm">{(state.quickfire || []).length ? 'New round' : 'Try a round'}</Link>
+        </div>
+        {(state.quickfire || []).length ? <SpeedTrend rounds={state.quickfire} /> : <p className="muted text-sm">8 quick questions: how fast you start talking, fillers per minute and your longest pause. Your trend shows up here.</p>}
+      </section>
 
       <WordTracker />
 

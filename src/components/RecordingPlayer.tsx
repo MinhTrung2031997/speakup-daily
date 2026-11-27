@@ -5,7 +5,7 @@ import type { RecordingItem } from '../lib/types';
 import { Spinner } from './ui';
 import Icon from './Icon';
 
-const KIND_LABEL: Record<RecordingItem['kind'], string> = { answer: 'Answer', retry: 'Try again', builder: 'Say it your way', retell: 'Retell', shadowing: 'Shadowing' };
+const KIND_LABEL: Record<RecordingItem['kind'], string> = { answer: 'Answer', retry: 'Try again', builder: 'Say it your way', retell: 'Retell', shadowing: 'Shadowing', quickfire: 'Speed round' };
 const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 export const fmtMB = (bytes: number) => (bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`);
 
@@ -98,7 +98,7 @@ export function RecordingList({ recs, title = '🎧 Your recordings' }: { recs: 
 export function CompareRecordings({ recs }: { recs: RecordingItem[] }) {
   const byType = new Map<string, RecordingItem[]>();
   for (const r of recs) {
-    if (r.kind === 'shadowing' || r.kind === 'retell' || !r.questionType) continue;
+    if (r.kind === 'shadowing' || r.kind === 'retell' || r.kind === 'quickfire' || !r.questionType) continue;
     byType.set(r.questionType, [...(byType.get(r.questionType) || []), r]);
   }
   const types = [...byType.entries()].filter(([, l]) => l.length >= 2).sort((a, b) => b[1].length - a[1].length).map(([t]) => t);

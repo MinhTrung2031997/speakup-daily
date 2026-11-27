@@ -818,6 +818,12 @@ export type Database = {
         Update: { id?: string; user_id?: string; local_date?: string; kind?: string; title?: string | null; body?: string | null; sent?: number; status?: string | null; created_at?: string }
         Relationships: []
       }
+      quickfire_rounds: {
+        Row: { id: string; user_id: string; round_date: string; level: string; start_limit: number; avg_start: number | null; fillers_per_min: number | null; longest_pause: number | null; misses: number; answers: Json; best_index: number | null; worst_index: number | null; filler_source: string; created_at: string }
+        Insert: { id?: string; user_id?: string; round_date: string; level?: string; start_limit?: number; avg_start?: number | null; fillers_per_min?: number | null; longest_pause?: number | null; misses?: number; answers?: Json; best_index?: number | null; worst_index?: number | null; filler_source?: string; created_at?: string }
+        Update: { id?: string; user_id?: string; round_date?: string; level?: string; start_limit?: number; avg_start?: number | null; fillers_per_min?: number | null; longest_pause?: number | null; misses?: number; answers?: Json; best_index?: number | null; worst_index?: number | null; filler_source?: string; created_at?: string }
+        Relationships: []
+      }
       say_sessions: {
         Row: { created_at: string; grade: Json | null; id: string; input: string; input_lang: string; picked: number | null; result: Json; session_date: string; shadowed: boolean; updated_at: string; user_id: string }
         Insert: { created_at?: string; grade?: Json | null; id?: string; input: string; input_lang?: string; picked?: number | null; result: Json; session_date?: string; shadowed?: boolean; updated_at?: string; user_id?: string }

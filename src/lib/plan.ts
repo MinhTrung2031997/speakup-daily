@@ -105,6 +105,7 @@ export function nextReview(r: AnswerReview, better: boolean, same: boolean, toda
 // ---- weakest area (last 7 days) ----
 export interface Weakness { extra: PlanExtra; why: string }
 const EXTRA: Record<PlanExtra, { title: string; mins: number; link: string }> = {
+  speed: { title: 'Reply speed round', mins: 4, link: '/speed' },
   voice: { title: 'Voice-only role-play', mins: 5, link: '/chat?mode=scene' },
   listen: { title: 'Listen + dictation drill', mins: 5, link: '/listen' },
   scene: { title: 'Role-play scene', mins: 5, link: '/chat?mode=scene' },
@@ -126,7 +127,12 @@ export function weakestArea(s: AppState, today = todayStr()): Weakness {
   if (flu.length) {
     const wpm = flu.reduce((a, f) => a + f.wpm, 0) / flu.length;
     const fillersPer100 = (flu.reduce((a, f) => a + f.fillers, 0) / Math.max(1, flu.reduce((a, f) => a + f.words, 0))) * 100;
-    if (fillersPer100 >= 4 || wpm < 95) flagged.push({ extra: 'voice', why: fillersPer100 >= 4 ? `Lots of fillers this week (${Math.round(fillersPer100)} per 100 words). Voice-only mode trains you to start fast.` : `Your pace was slow this week (${Math.round(wpm)} words/min). Voice-only mode trains you to start fast.`, sev: Math.max(fillersPer100 / 4, 95 / Math.max(wpm, 1)) });
+    if (fillersPer100 >= 4 || wpm < 95) flagged.push({ extra: 'speed', why: fillersPer100 >= 4 ? `Lots of fillers this week (${Math.round(fillersPer100)} per 100 words). A quick-fire round trains you to start fast without "um".` : `Your pace was slow this week (${Math.round(wpm)} words/min). A quick-fire round trains you to start fast.`, sev: Math.max(fillersPer100 / 4, 95 / Math.max(wpm, 1)) });
+  }
+  const rounds = (s.quickfire || []).filter((r) => r.date >= from && r.date < today && r.avgStart != null);
+  if (rounds.length && !flagged.some((f) => f.extra === 'speed')) {
+    const last = rounds[rounds.length - 1];
+    if ((last.avgStart || 0) >= 2.5 || (last.fillersPerMin || 0) >= 8) flagged.push({ extra: 'speed', why: (last.avgStart || 0) >= 2.5 ? `Your last speed round started at ${last.avgStart?.toFixed(1)} s on average. Another round brings it down.` : `${Math.round(last.fillersPerMin || 0)} fillers a minute in your last speed round. Another round helps.`, sev: Math.max((last.avgStart || 0) / 2.5, (last.fillersPerMin || 0) / 8) });
   }
   const dict = (s.listens || []).filter((l) => l.date >= from && l.dictationAccuracy != null);
   if (dict.length) {
@@ -144,7 +150,7 @@ export function weakestArea(s: AppState, today = todayStr()): Weakness {
     if (natural.size < 3) flagged.push({ extra: 'say', why: `${natural.size ? `Only ${natural.size} saved phrase${natural.size === 1 ? '' : 's'}` : 'None of your saved phrases'} used naturally this week. Say it better gives you new ones to use.`, sev: 1.2 - natural.size * 0.2 });
   }
   if (flagged.length) return flagged.sort((a, b) => b.sev - a.sev)[0];
-  const rota: PlanExtra[] = ['voice', 'listen', 'scene', 'say', 'discord'];
+  const rota: PlanExtra[] = ['speed', 'listen', 'scene', 'say', 'discord'];
   return { extra: rota[hashStr(`rota${today}`) % rota.length], why: 'Rotating extra for today.' };
 }
 
@@ -186,6 +192,7 @@ function extraDone(s: AppState, extra: PlanExtra | undefined, d: string): boolea
     case 'discord': return talked('discord');
     case 'listen': return (s.listens || []).some((l) => l.date === d);
     case 'say': return (s.saySessions || []).some((x) => x.date === d);
+    case 'speed': return (s.quickfire || []).some((x) => x.date === d);
     default: return false;
   }
 }

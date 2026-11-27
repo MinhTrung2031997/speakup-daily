@@ -249,6 +249,8 @@ export interface AppState {
   plans: DailyPlan[];
   /** Old daily answers coming back on a 1/3/7/21-day schedule (answer_reviews). */
   answerReviews: AnswerReview[];
+  /** Reply speed meter rounds (quickfire_rounds), oldest first. */
+  quickfire: QuickFireRound[];
   sounds: SoundItem[];
   /** Saved mic recordings (recordings table + private bucket), oldest first. Kept permanently. */
   recordings: RecordingItem[];
@@ -258,7 +260,44 @@ export interface AppState {
   activityLog: Record<string, number>; // date -> count of practice actions
 }
 
-export type RecordingKind = 'answer' | 'retry' | 'builder' | 'retell' | 'shadowing';
+export type RecordingKind = 'answer' | 'retry' | 'builder' | 'retell' | 'shadowing' | 'quickfire';
+
+/** One answer in a quick-fire round (Reply speed meter). Times in seconds. */
+export interface QuickFireAnswer {
+  q: string;
+  level: 'easy' | 'open';
+  /** Time to first word after the question audio ended (waveform onset); null = never spoke. */
+  start: number | null;
+  /** Did not start within the round's limit (3 s, or 2 s when harder). Still recorded. */
+  missed: boolean;
+  /** Recording length and time from first to last sound. */
+  seconds: number;
+  speechSeconds: number;
+  fillers: number;
+  fillersPerMin: number;
+  fillerSource: 'gemini' | 'chrome';
+  longestPause: number;
+  transcript: string;
+  /** recordings.id of the saved clip (best + worst answer only). */
+  recordingId?: string;
+}
+
+/** A Reply speed meter round: 8 quick questions (quickfire_rounds). */
+export interface QuickFireRound {
+  id: string;
+  date: string;
+  level: 'easy' | 'open';
+  startLimit: number;
+  avgStart: number | null;
+  fillersPerMin: number | null;
+  longestPause: number | null;
+  misses: number;
+  answers: QuickFireAnswer[];
+  bestIndex: number | null;
+  worstIndex: number | null;
+  fillerSource: 'gemini' | 'chrome' | 'mixed';
+  createdAt: number;
+}
 
 /** One saved mic clip (Opus/WebM in the private `recordings` bucket at `<user_id>/<kind>/<date>/<id>.webm`). */
 export interface RecordingItem {
@@ -515,7 +554,7 @@ export interface PartnerState {
 // ---- Today's plan ----
 export type PlanItemKind = 'question' | 'reviews' | 'redo' | 'extra';
 /** The rotating extra, picked from the weakest area in the last 7 days. */
-export type PlanExtra = 'voice' | 'listen' | 'scene' | 'discord' | 'say';
+export type PlanExtra = 'speed' | 'voice' | 'listen' | 'scene' | 'discord' | 'say';
 export interface PlanItem {
   id: string;
   kind: PlanItemKind;
