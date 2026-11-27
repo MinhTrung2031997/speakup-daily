@@ -256,7 +256,7 @@ function Results({ round, unlocked, prev, clipUrls, saveState, onAgain }: { roun
 
       {cards.map((c) => (
         <section key={c.tag} className={`card space-y-1.5 border-l-4 ${c.tag === 'Best' ? 'border-l-emerald-500' : 'border-l-amber-500'}`} data-testid={`speed-${c.tag.toLowerCase()}`}>
-          <p className="text-xs font-semibold text-slate-500">{c.tag === 'Best' ? '🏆 Best answer' : '🐢 Slowest answer'} · Q{c.i + 1}</p>
+          <p className="text-xs font-semibold text-slate-500">{c.tag === 'Best' ? '🏆 Best answer' : '🔁 Weakest answer (start + fillers + pauses)'} · Q{c.i + 1}</p>
           <p className="font-medium">{c.a.q}</p>
           <p className="muted text-sm">Start {fmt(c.a.start)} · {c.a.fillers} filler{c.a.fillers === 1 ? '' : 's'} · longest pause {fmt(c.a.longestPause)}</p>
           {c.a.transcript && <p className="text-sm italic">"{c.a.transcript}"</p>}
@@ -298,7 +298,7 @@ function History({ rounds }: { rounds: QuickFireRound[] }) {
             <div className="mt-2 space-y-1.5">
               {recs.map((x) => {
                 const i = x.questionType === 'best' ? r.bestIndex : r.worstIndex;
-                return <RecordingPlayer key={x.id} rec={x} compact label={`${x.questionType === 'best' ? '🏆 Best' : '🐢 Slowest'}: ${i != null ? r.answers[i]?.q || '' : ''}`} />;
+                return <RecordingPlayer key={x.id} rec={x} compact label={`${x.questionType === 'best' ? '🏆 Best' : '🔁 Weakest'}: ${i != null ? r.answers[i]?.q || '' : ''}`} />;
               })}
               {!recs.length && <p className="muted text-xs">No audio kept for this round.</p>}
             </div>
