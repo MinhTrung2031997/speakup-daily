@@ -218,7 +218,7 @@ export async function analyzeAnswer(cfg: GeminiConfig, q: { q: string; level: 'e
     try {
       const from = Math.max(0, Math.floor((start - 0.2) * RATE));
       const slice = pcm.subarray(from);
-      const g = await quickFireFillers(cfg, { mimeType: 'audio/wav', data: wavBase64(slice, RATE), seconds: slice.length / RATE }, { question: q.q, transcript: raw.transcript });
+      const g = await quickFireFillers(cfg, { mimeType: 'audio/wav', data: wavBase64(slice, RATE), seconds: slice.length / RATE }, { question: q.q });
       if (g.transcript.trim() || !raw.transcript) {
         fillers = g.total;
         fillerSource = 'gemini';

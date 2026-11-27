@@ -802,10 +802,10 @@ export async function overusedSwaps(cfg: GeminiConfig, word: string, sentences: 
 export async function quickFireFillers(
   cfg: GeminiConfig,
   audio: { mimeType: string; data: string; seconds: number },
-  opts: { question: string; transcript?: string },
+  opts: { question: string },
 ): Promise<{ transcript: string; fillers: Record<string, number>; total: number }> {
+  // No browser transcript hint here: with one the model tends to copy it (fillers dropped) instead of listening.
   const prompt = `Quick-fire speaking drill. A Vietnamese learner of English answered this question out loud: "${opts.question.slice(0, 200)}".
-${opts.transcript ? `Browser speech recognition heard (rough hint only; it drops fillers): """${opts.transcript.slice(0, 600)}"""` : ''}
 The recording is about ${Math.round(audio.seconds)} seconds long.
 Transcribe EXACTLY what you hear, word for word, including every hesitation (um, uh, er, ah, hmm) and filler phrase (like, you know, I mean, kind of, sort of, well, so, actually, basically). Count "like"/"so"/"well"/"actually" only when used as a filler, not when they carry meaning.
 If there is no speech, return an empty transcript and {}.

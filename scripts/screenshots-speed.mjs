@@ -33,14 +33,15 @@ await page.setViewport({ width: 390, height: 844, deviceScaleFactor: 2, isMobile
 const ttsCalls = [];
 // Real run: one question's TTS always answers 502 -> that question must use the browser voice.
 let failText = null;
+let armFail = false; // only questions asked on /speed (Today also asks its daily question aloud)
 if (REAL) {
   await page.setRequestInterception(true);
   page.on('request', (r) => {
     if (r.isInterceptResolutionHandled()) return;
     if (r.method() === 'POST' && r.url().includes('/functions/v1/tts')) {
       const t = JSON.parse(r.postData() || '{}').text;
-      if (!failText) failText = t;
-      if (t === failText) return r.respond({ status: 502, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify({ error: { kind: 'server', message: 'forced 502 (test)' } }) });
+      if (armFail && !failText) failText = t;
+      if (failText && t === failText) return r.respond({ status: 502, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify({ error: { kind: 'server', message: 'forced 502 (test)' } }) });
     }
     r.continue();
   });
@@ -126,6 +127,7 @@ try {
 
   // 3) Get ready: pre-warm all 8 voices before the first question
   const tts0 = ttsCalls.length;
+  armFail = true;
   await clickSel('[data-testid="speed-start"]');
   await page.waitForSelector('[data-testid="speed-ready"]', { timeout: 10000 });
   await shotEl(`${PREFIX}-2-ready`, 'main');
